@@ -4,13 +4,22 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 #How many degrees the robot must turn in order to correct the turn
 ANGLE_CORRECT_THRESHOLD = 3
+#How many seconds to check for angle correction
+ANGLE_CORRECT_INTERVAL = 0.1
+#Direction of the sideways ultrasonic sensor
+#Left = -1, Right = 1
+US_T_DIR = 1
+#Direction to favor when solving the maze, -1 is left, 1 is right
+#I don't guaruntee that this program will work if US_T_DIR == MAZE_DIR
+MAZE_DIR = -1
+assert US_T_DIR != MAZE_DIR
+
+#Greater than distance from ultrasonic to wall
+US_WALL_DIST = 500
 
 #Connect motors
 rightMotor = LargeMotor(OUTPUT_A)
 leftMotor = LargeMotor(OUTPUT_B)
-#Direction of the sideways ultrasonic sensor
-#Left = -1, Right = 1
-usTdir = 1
 #Forward ultrasonic sensor
 usF = UltrasonicSensor(INPUT_1)
 assert usF.connected
@@ -23,31 +32,20 @@ assert gs.connected
 
 #IMPORTANT: Whenever moving straight, when there is a chance that the robot can
 #Move slightly in one direction, use THIS as a turning direction,
-#i.e. LeftMotor = speed + motorTrim, and  RightMotor = speed - motorTrim
-#1 means turn right, -1 means turn left
-motorTrim = 0
+leftMotorTrim = 0
+rightMotorTrim = 0
 
-"""#List of all previous turns made (going into the maze)
-previous_turns = []
-
-#Flags if the robot is currently in an intersection, probably turning
-intersection_is = False
-
-#A list of True:Has a wall and False:No wall, from left -> forward -> right
-#Describing the current intersection
-intersection_walls = []
-
-#Either -1, 0, 1, so that when intersection_is is True, then
-#this tells us how we've already turned. -1 for left, 1 for right, 0 for no turn
-intersection_turn = 0"""
-
-"""def scan_intersection():
-    intersection_is = True
-    intersection+turn = 0
-    turn(1)
-    """
+#Main thread
+while not canTurn():
+    rightMotor.run_direct(duty_cycle_sp=75 - leftMotorTrim)
+    leftMotor.run_direct(duty_cycle_sp=75 - rightMotorTrim)
+    
+    
     
 
+#Checks if there is a place to turn left
+def canTurn():
+    return usT.value() > US_WALL_DIST
 
 #Thread to check if the robot is moving off-course when going straight
 #Reset/Run a new one every time you move on from an intersection
@@ -58,40 +56,35 @@ class OffsetCheck(threading.Thread):
     
     def __init__(self):
         threading.Thread.__init__(self)
-        self.action_list = action_list
         self.interrupt = False
     
     def reset:
-        initialAngle = gs.value()
+        initialAngle = gs.value
+        self.interrupt = False()
     
-    #Motor operation
+    #Checking for any change in direction
     def run(self):
+        while not self.interrupt:
         angle = gs.value()
         difference = angle - initialAngle
-        if difference > ANGLE_CORRECT_THRESHOLD or difference < -ANGLE_CORRECT_THRESHOLD:
-            #Direction that it has turned in
-            if difference < 0:
-                direction = -1
-            else
-                direction = 1
-            
-            
-        """for (left, right, duration) in self.action_list:
-            self.left = left
-            self.right = right
-            rightMotor.run_timed(speed_sp=left, time_sp=duration)
-            leftMotor.run_timed(speed_sp=right, time_sp=duration)
-            while duration > 0:
-                sleep(0.1)
-                duration -= 0.1
-                if self.interrupt:
-                    return
-        """
+        #Reset trims
+        rightMotorTrim = 0
+        leftMotorTrim = 0
+        if difference > ANGLE_CORRECT_THRESHOLD:
+            #difference > 0 means it's turned right
+            #Turn it left by reducing right motor:
+            rightMotorTrim = difference
+        if difference < -ANGLE_CORRECT_THRESHOLD:
+            #difference < 0 means it's turned left
+            #Turn it right by reducing left motor:
+            leftMotorTrim = -difference
+        sleep(ANGLE_CORRECT_INTERVAL)
         
     #Stop Thread
     def stop(self):
         self.interrupt = True
-    
+        leftMotorTrim = 0
+        rightMotorTrim = 0
 
 def turn(dir):
     
