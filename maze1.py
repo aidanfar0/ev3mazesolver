@@ -1,7 +1,11 @@
+#!/bin/bash
+from ev3dev.ev3 import *
 from time import sleep
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+#Interval of time for the turn code to check if it's turned
+TURN_CHECK_INTERVAL = 0.1
 #How many degrees the robot must turn in order to correct the turn
 ANGLE_CORRECT_THRESHOLD = 3
 #How many seconds to check for angle correction
@@ -35,12 +39,15 @@ assert gs.connected
 leftMotorTrim = 0
 rightMotorTrim = 0
 
+isTurning = False
+
 #Main thread
-while not canTurn():
-    rightMotor.run_direct(duty_cycle_sp=75 - leftMotorTrim)
-    leftMotor.run_direct(duty_cycle_sp=75 - rightMotorTrim)
+while True:
+    if not canTurn():
+        rightMotor.run_direct(duty_cycle_sp=75 - leftMotorTrim)
+        leftMotor.run_direct(duty_cycle_sp=75 - rightMotorTrim)
     
-    
+    turn(-1)
     
 
 #Checks if there is a place to turn left
@@ -58,27 +65,35 @@ class OffsetCheck(threading.Thread):
         threading.Thread.__init__(self)
         self.interrupt = False
     
-    def reset:
+    def reset(self):
         initialAngle = gs.value
         self.interrupt = False()
+        leftMotorTrim = 0
+        rightMotorTrim = 0
     
     #Checking for any change in direction
     def run(self):
         while not self.interrupt:
-        angle = gs.value()
-        difference = angle - initialAngle
-        #Reset trims
-        rightMotorTrim = 0
-        leftMotorTrim = 0
-        if difference > ANGLE_CORRECT_THRESHOLD:
-            #difference > 0 means it's turned right
-            #Turn it left by reducing right motor:
-            rightMotorTrim = difference
-        if difference < -ANGLE_CORRECT_THRESHOLD:
-            #difference < 0 means it's turned left
-            #Turn it right by reducing left motor:
-            leftMotorTrim = -difference
-        sleep(ANGLE_CORRECT_INTERVAL)
+            if isTurning:
+                sleep(TURN_CHECK_INTERVAL)
+                initialAngle = gs.value()
+                leftMotorTrim = 0
+                rightMotorTrim = 0
+            else:
+                angle = gs.value()
+                difference = angle - initialAngle
+                #Reset trims
+                rightMotorTrim = 0
+                leftMotorTrim = 0
+                if difference > ANGLE_CORRECT_THRESHOLD:
+                    #difference > 0 means it's turned right
+                    #Turn it left by reducing right motor:
+                    rightMotorTrim = difference
+                if difference < -ANGLE_CORRECT_THRESHOLD:
+                    #difference < 0 means it's turned left
+                    #Turn it right by reducing left motor:
+                    leftMotorTrim = -difference
+                sleep(ANGLE_CORRECT_INTERVAL)
         
     #Stop Thread
     def stop(self):
@@ -86,7 +101,27 @@ class OffsetCheck(threading.Thread):
         leftMotorTrim = 0
         rightMotorTrim = 0
 
+def angleModulus(angle):
+    return (angle + 360) % 360
+
+def angleRev(angle):
+    modded = angleModulus(angle)
+    if(modded > 180):
+        return 180-modded
+    else
+        return modded
+    
+
 def turn(dir):
+    gs_start = gs.value()
+    target = gs_start + dir*90
     
+    rightMotor.run_direct(duty_cycle_sp=75 - leftMotorTrim)
+    leftMotor.run_direct(duty_cycle_sp=75 - rightMotorTrim)
+    isTurning = True
     
+    while angleRev(gs.value() - target) > 0:
+        print("Turn not ended, current value: "+gs.value()+", target: " + target);
+        sleep(TURN_CHECK_INTERVAL)
+    isTurning = False
     
