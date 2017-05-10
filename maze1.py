@@ -24,6 +24,10 @@ US_WALL_DIST = 500
 #Connect motors
 rightMotor = LargeMotor(OUTPUT_A)
 leftMotor = LargeMotor(OUTPUT_B)
+
+cs = ColorSensor(INPUT_2)
+
+
 #Forward ultrasonic sensor
 usF = UltrasonicSensor(INPUT_1)
 assert usF.connected
@@ -40,6 +44,9 @@ leftMotorTrim = 0
 rightMotorTrim = 0
 
 isTurning = False
+
+offset_check_thread = OffsetCheck()
+offset_check_thread.start()
 
 #Main thread
 while True:
@@ -101,16 +108,28 @@ class OffsetCheck(threading.Thread):
         leftMotorTrim = 0
         rightMotorTrim = 0
 
+#Convert angle to between 0 and 360
 def angleModulus(angle):
     return (angle + 360) % 360
 
+#Convert angle to between -180 and 180 degrees
 def angleRev(angle):
-    modded = angleModulus(angle)
-    if(modded > 180):
-        return 180-modded
-    else
-        return modded
-    
+    if(angle > 0):
+        modded = angleModulus(angle)
+        if(modded > 180):
+            return modded - 360
+        else:
+            return modded
+    else:
+        #Modulus 180 but keeps it < 0
+        modded = angle
+        while(modded + 360 < 0):
+            modded += 360
+        
+        if(modded < -180):
+            return modded + 360
+        else:
+            return modded
 
 def turn(dir):
     gs_start = gs.value()
@@ -119,9 +138,9 @@ def turn(dir):
     rightMotor.run_direct(duty_cycle_sp=75 - leftMotorTrim)
     leftMotor.run_direct(duty_cycle_sp=75 - rightMotorTrim)
     isTurning = True
-    
+    print("Turning...")
     while angleRev(gs.value() - target) > 0:
-        print("Turn not ended, current value: "+gs.value()+", target: " + target);
+        print(gs.value()+"," + target+";");
         sleep(TURN_CHECK_INTERVAL)
     isTurning = False
     
