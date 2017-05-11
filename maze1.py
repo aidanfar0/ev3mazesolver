@@ -4,25 +4,42 @@ from time import sleep
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-#Time to wait until turning (it will keep going forward)
-#This should be the amount of time that the robot takes to
-#Get from just detecting that the left side is open (ultrasonic)
-#To getting to the midpoint of the walls
-TURN_WAIT
-#Interval of time for the turn code to check if it's turned
-TURN_CHECK_INTERVAL = 0.1
+"""Time to wait until turning (it will keep going forward)
+This should be the amount of time that the robot takes to
+Get from just detecting that the left side is open (ultrasonic)
+To getting to the midpoint of the walls"""
+TURN_WAIT = 1 #NEEDS CALIBRATION
+#Amount of time to wait after turning to continue again
+TURN_STOP_WAIT = 2
+#How many centimeters the robot must be "off-center' in order to correct it
+DIST_CORRECT_THRESHOLD = 10
 #How many degrees the robot must turn in order to correct the turn
 ANGLE_CORRECT_THRESHOLD = 3
 #How many seconds to check for angle correction
 ANGLE_CORRECT_INTERVAL = 0.1
+#Interval of time for the turn code to check if it's turned
+TURN_CHECK_INTERVAL = 0.1
+#interval to check if the can is near
+CAN_DIST_CHECK_INTERVAL = 0.05
+#how close to get to to claw the can
+CAN_DIST_THRESHOLD = 3
+
+FORWARD_SPEED = 75
+
+TURN_SPEED = 25
+
+CAN_FORWARD_SPEED = 25
+CAN_TURN_SPEED = 10
+
+#DON'T CHANGE THESE 2:
 #Direction of the sideways ultrasonic sensor
 #Left = -1, Right = 1
-US_T_DIR = 1
+US_T_DIR = -1
 #Direction to favor when solving the maze, -1 is left, 1 is right
-#I don't guaruntee that this program will work if US_T_DIR == MAZE_DIR
 MAZE_DIR = -1
-assert US_T_DIR != MAZE_DIR
+assert US_T_DIR == MAZE_DIR
 
+#NEEDS CALIBRATION
 #Greater than distance from ultrasonic to wall
 US_WALL_DIST = 500
 
@@ -31,7 +48,7 @@ rightMotor = LargeMotor(OUTPUT_A)
 leftMotor = LargeMotor(OUTPUT_B)
 
 cs = ColorSensor(INPUT_2)
-
+assert cs.connected
 
 #Forward ultrasonic sensor
 usF = UltrasonicSensor(INPUT_1)
@@ -47,31 +64,42 @@ assert gs.connected
 #Move slightly in one direction, use THIS as a turning direction,
 leftMotorTrim = 0
 rightMotorTrim = 0
+leftMotorTrim2 = 0
+rightMotorTrim2 = 0
 
 isTurning = False
 #Flag if the program is going forward but waiting to turn
 turningWait = False
+#Flag when it's moving toward the center of the intersection
+
+#isCan = False #generally doing an operation with the can
+movingToCan = False #moving towards the can
+lostCan = False #when it found the can, but lost it (probably due to the robot not going straight to it)
 
 offset_check_thread = OffsetCheck()
 offset_check_thread.start()
 
 #Main thread
 while True:
-    if canTurn() :
+    if foundCan():
+        getCan()
+    else if canTurn() :
         turnWaiting = True
         sleep(TURN_WAIT)
         turnWaiting = False
-        turn(-1)
+        turn(MAZE_DIR)
     else if canGoForward():
-        rightMotor.run_direct(duty_cycle_sp=75 - leftMotorTrim)
-        leftMotor.run_direct(duty_cycle_sp=75 - rightMotorTrim)
+        forward()
     else:
         turnWaiting = True
         sleep(TURN_WAIT)
         turnWaiting = False
-        turn(1)
+        turn(-(MAZE_DIR))
 
 #Checks if there is a place to turn left
+def foundCan:
+    return cs.color == 5 #red = 5
+
 def canTurn():
     return usT.value() > US_WALL_DIST
 
@@ -107,18 +135,19 @@ class OffsetCheck(threading.Thread):
             else:
                 #Use gyroscope to correct the trim of the wheels
                 angle = gs.value()
+                #difference: >0 when leaning right, and <0 when leaning left
                 difference = angle - initialAngle
                 #Reset trims
                 rightMotorTrim = 0
                 leftMotorTrim = 0
                 if difference > ANGLE_CORRECT_THRESHOLD:
-                    #difference > 0 means it's turned right
                     #Turn it left by reducing right motor:
                     rightMotorTrim = difference
+                    print("TRIM: LEFT " + difference)
                 else if difference < -ANGLE_CORRECT_THRESHOLD:
-                    #difference < 0 means it's turned left
                     #Turn it right by reducing left motor:
                     leftMotorTrim = -difference
+                    print("TRIM: RIGHT " + difference)
                 
                 sleep(ANGLE_CORRECT_INTERVAL)
         
@@ -142,8 +171,8 @@ class OffsetCheckUS(threading.Thread):
     def reset(self):
         initialDist = us.value()
         self.interrupt = False
-        #leftMotorTrim = 0
-        #rightMotorTrim = 0
+        leftMotorTrim2 = 0
+        rightMotorTrim2 = 0
     
     #Checking for any change in direction
     def run(self):
@@ -153,8 +182,8 @@ class OffsetCheckUS(threading.Thread):
                 sleep(TURN_CHECK_INTERVAL)
                 #Set initial variables (for if it stopped turning)
                 initialAngle = us.value()
-                leftMotorTrim = 0
-                rightMotorTrim = 0
+                leftMotorTrim2 = 0
+                rightMotorTrim2 = 0
             else if not foundWall:
                 #Check if the wall is found
                 if us.value() < US_WALL_DIST:
@@ -166,31 +195,87 @@ class OffsetCheckUS(threading.Thread):
             else if foundWall:
                 #Use ultrasonic sensor to correct the trim of the wheels
                 dist = us.value()
-                difference = dist - initialDist
+                #difference: >0 when leaning right, and <0 when leaning left
+                difference = -1 * US_T_DIR * (dist - initialDist)
                 #Reset trims
-                #rightMotorTrim = 0
-                #leftMotorTrim = 0
-                if difference > ANGLE_CORRECT_THRESHOLD:
-                    #difference > 0 means it's turned right
+                rightMotorTrim2 = 0
+                leftMotorTrim2 = 0
+                if difference > DIST_CORRECT_THRESHOLD:
                     #Turn it left by reducing right motor:
-                    #rightMotorTrim = difference
-                else if difference < -ANGLE_CORRECT_THRESHOLD:
-                    #difference < 0 means it's turned left
+                    rightMotorTrim2 = difference
+                    print("TRIM: LEFT " + difference)
+                if difference < -DIST_CORRECT_THRESHOLD:
                     #Turn it right by reducing left motor:
-                    #   leftMotorTrim = -difference
+                    leftMotorTrim2 = -difference
+                    print("TRIM: RIGHT " + difference)
                 
                 sleep(ANGLE_CORRECT_INTERVAL)
         
     #Stop Thread
     def stop(self):
         self.interrupt = True
-        leftMotorTrim = 0
-        rightMotorTrim = 0
+        leftMotorTrim2 = 0
+        rightMotorTrim2 = 0
 
+#checks if the can is not infront of the colour sensor
+#start the thread when starts moving to the can
+OffsetCanCheck(threading.thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.interrupt = False
+    
+    def reset(self):
+        self.interrupt = False
+    
+    def run(self):
+        while not self.interrupt and movingToCan:
+            if not foundCan() and not lostCan:
+                lostCan = True
+                reFindCan()
+            else:
+                sleep(TURN_CHECK_INTERVAL)
+
+    def stop():
+        self.interrupt = True
+
+CanDistCheck(threading.thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.interrupt = False
+    
+    def reset(self):
+        self.interrupt = False
+    
+    def run(self):
+        while not self.interrupt and movingToCan:
+            if usF.value() < CAN_DIST_THRESHOLD:
+                grabCan()
+            else:
+                sleep(CAN_DIST_CHECK_INTERVAL)
+
+    def stop():
+        self.interrupt = True
+
+#moves on the spot until the can is found
+def reFindCan():
+    dir = 1
+    rightMotor.run_direct(duty_cycle_sp=CAN_TURN_SPEED * -dir)
+    leftMotor.run_direct(duty_cycle_sp=CAN_TURN_SPEED * dir)
+    #turn on the spot until found the can again
+    while not foundCan():
+        sleep(TURN_CHECK_INTERVAL)
+    print("Re-found the can")
+    stop()
+    lostCan = False
+    rightMotor.run_direct(duty_cycle=CAN_FORWARD_SPEED)
+    leftMotor.run_direct(duty_cycle=CAN_FORWARD_SPEED)
+
+#This has been TESTED INDEPENDENTLY (i.e. in python console)
 #Convert angle to between 0 and 360
 def angleModulus(angle):
     return (angle + 360) % 360
 
+#This has been TESTED INDEPENDENTLY (i.e. in python console)
 #Convert angle to between -180 and 180 degrees
 def angleRev(angle):
     if(angle > 0):
@@ -209,14 +294,39 @@ def angleRev(angle):
             return modded + 360
         else:
             return modded
+            
+def stop():
+    leftMotor.stop(stop_action='brake')
+    rightMotor.stop(stop_action='brake')
+    leftMotor.stop()
+    rightMotor.stop()
+
+def forward():
+    rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - leftMotorTrim - leftMotorTrim2)
+    leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - rightMotorTrim - rightMotorTrim2)
+
+def getCan():
+    movingToCan = True
+     rightMotor.run_direct(duty_cycle=CAN_FORWARD_SPEED)
+    leftMotor.run_direct(duty_cycle=CAN_FORWARD_SPEED)
+    offset_can_check = OffsetCanCheck()
+    offset_can_check.start()
+    
+    dist_can_check = CanDistCheck()
+    dist_can_check.start()
+    
+    
 
 def turn(dir):
+    if(dir == 0):
+        return
+    
     isTurning = True
     gs_start = gs.value()
     target = gs_start + dir*90
     
-    rightMotor.run_direct(duty_cycle_sp=75 * -dir)
-    leftMotor.run_direct(duty_cycle_sp=75 * dir)
+    rightMotor.run_direct(duty_cycle_sp=TURN_SPEED * -dir)
+    leftMotor.run_direct(duty_cycle_sp=TURN_SPEED * dir)
     print("Turning...")
     #angleRev(gs.value() () - target) Approaches 0
     #Approaches from the right if turning left
@@ -226,5 +336,8 @@ def turn(dir):
         print(gs.value()+"->" + target);
         sleep(TURN_CHECK_INTERVAL)
     printf("Finished turn")
+    
+    stop()
+    sleep(TURN_STOP_WAIT)
     isTurning = False
 
