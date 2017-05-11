@@ -4,6 +4,11 @@ from time import sleep
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+#Time to wait until turning (it will keep going forward)
+#This should be the amount of time that the robot takes to
+#Get from just detecting that the left side is open (ultrasonic)
+#To getting to the midpoint of the walls
+TURN_WAIT
 #Interval of time for the turn code to check if it's turned
 TURN_CHECK_INTERVAL = 0.1
 #How many degrees the robot must turn in order to correct the turn
@@ -44,26 +49,37 @@ leftMotorTrim = 0
 rightMotorTrim = 0
 
 isTurning = False
+#Flag if the program is going forward but waiting to turn
+turningWait = False
 
 offset_check_thread = OffsetCheck()
 offset_check_thread.start()
 
 #Main thread
 while True:
-    if not canTurn():
+    if canTurn() :
+        turnWaiting = True
+        sleep(TURN_WAIT)
+        turnWaiting = False
+        turn(-1)
+    else if canGoForward():
         rightMotor.run_direct(duty_cycle_sp=75 - leftMotorTrim)
         leftMotor.run_direct(duty_cycle_sp=75 - rightMotorTrim)
-    
-    turn(-1)
-    
+    else:
+        turnWaiting = True
+        sleep(TURN_WAIT)
+        turnWaiting = False
+        turn(1)
 
 #Checks if there is a place to turn left
 def canTurn():
     return usT.value() > US_WALL_DIST
 
+def canGoForward():
+    return usF.value() > US_WALL_DIST
+
 #Thread to check if the robot is moving off-course when going straight
 #Reset/Run a new one every time you move on from an intersection
-#Stop it once you get to a new intersection
 class OffsetCheck(threading.Thread):
     #After the ultrasonic has passed the wall, this is the distance it detects
     initialAngle = 0
@@ -73,20 +89,23 @@ class OffsetCheck(threading.Thread):
         self.interrupt = False
     
     def reset(self):
-        initialAngle = gs.value
-        self.interrupt = False()
+        initialAngle = gs.value()
+        self.interrupt = False
         leftMotorTrim = 0
         rightMotorTrim = 0
     
     #Checking for any change in direction
     def run(self):
         while not self.interrupt:
-            if isTurning:
+            if isTurning or turnWaiting:
+                #Wait until not turning anymore
                 sleep(TURN_CHECK_INTERVAL)
+                #Set initial variables (for if it stopped turning)
                 initialAngle = gs.value()
                 leftMotorTrim = 0
                 rightMotorTrim = 0
             else:
+                #Use gyroscope to correct the trim of the wheels
                 angle = gs.value()
                 difference = angle - initialAngle
                 #Reset trims
@@ -96,10 +115,70 @@ class OffsetCheck(threading.Thread):
                     #difference > 0 means it's turned right
                     #Turn it left by reducing right motor:
                     rightMotorTrim = difference
-                if difference < -ANGLE_CORRECT_THRESHOLD:
+                else if difference < -ANGLE_CORRECT_THRESHOLD:
                     #difference < 0 means it's turned left
                     #Turn it right by reducing left motor:
                     leftMotorTrim = -difference
+                
+                sleep(ANGLE_CORRECT_INTERVAL)
+        
+    #Stop Thread
+    def stop(self):
+        self.interrupt = True
+        leftMotorTrim = 0
+        rightMotorTrim = 0
+
+
+#Uses the ultrasonic sensor to detect when it's heading off-course
+class OffsetCheckUS(threading.Thread):
+    #After the ultrasonic has passed the wall, this is the distance it detects
+    initialDist = 0
+    foundWall = False
+    
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.interrupt = False
+    
+    def reset(self):
+        initialDist = us.value()
+        self.interrupt = False
+        #leftMotorTrim = 0
+        #rightMotorTrim = 0
+    
+    #Checking for any change in direction
+    def run(self):
+        while not self.interrupt:
+            if isTurning or turnWaiting:
+                #Wait until not turning anymore
+                sleep(TURN_CHECK_INTERVAL)
+                #Set initial variables (for if it stopped turning)
+                initialAngle = us.value()
+                leftMotorTrim = 0
+                rightMotorTrim = 0
+            else if not foundWall:
+                #Check if the wall is found
+                if us.value() < US_WALL_DIST:
+                    foundWall = True
+                    initialDist = us.value()
+                else
+                    foundWall = False
+                    sleep(ANGLE_CORRECT_TIME)
+            else if foundWall:
+                #Use ultrasonic sensor to correct the trim of the wheels
+                dist = us.value()
+                difference = dist - initialDist
+                #Reset trims
+                #rightMotorTrim = 0
+                #leftMotorTrim = 0
+                if difference > ANGLE_CORRECT_THRESHOLD:
+                    #difference > 0 means it's turned right
+                    #Turn it left by reducing right motor:
+                    #rightMotorTrim = difference
+                else if difference < -ANGLE_CORRECT_THRESHOLD:
+                    #difference < 0 means it's turned left
+                    #Turn it right by reducing left motor:
+                    #   leftMotorTrim = -difference
+                
                 sleep(ANGLE_CORRECT_INTERVAL)
         
     #Stop Thread
@@ -139,8 +218,12 @@ def turn(dir):
     leftMotor.run_direct(duty_cycle_sp=75 - rightMotorTrim)
     isTurning = True
     print("Turning...")
-    while angleRev(gs.value() - target) > 0:
-        print(gs.value()+"," + target+";");
+    #angleRev(gs.value() () - target) Approaches 0
+    #Approaches from the right if turning left
+    #Approaches from the left if turning right
+    #As it turns into the direction
+    while abs(angleRev(gs.value() - target)) > 0:
+        print(gs.value()+"->" + target);
         sleep(TURN_CHECK_INTERVAL)
     isTurning = False
-    
+
