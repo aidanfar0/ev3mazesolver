@@ -211,12 +211,12 @@ def angleRev(angle):
             return modded
 
 def turn(dir):
+    isTurning = True
     gs_start = gs.value()
     target = gs_start + dir*90
     
-    rightMotor.run_direct(duty_cycle_sp=75 - leftMotorTrim)
-    leftMotor.run_direct(duty_cycle_sp=75 - rightMotorTrim)
-    isTurning = True
+    rightMotor.run_direct(duty_cycle_sp=75 * -dir)
+    leftMotor.run_direct(duty_cycle_sp=75 * dir)
     print("Turning...")
     #angleRev(gs.value() () - target) Approaches 0
     #Approaches from the right if turning left
@@ -225,5 +225,6 @@ def turn(dir):
     while abs(angleRev(gs.value() - target)) > 0:
         print(gs.value()+"->" + target);
         sleep(TURN_CHECK_INTERVAL)
+    printf("Finished turn")
     isTurning = False
 
