@@ -104,11 +104,11 @@ def getCan():
     rightMotor.run_direct(duty_cycle_sp=CAN_FORWARD_SPEED)
     leftMotor.run_direct(duty_cycle_sp=CAN_FORWARD_SPEED)
     
-    offset_can_check = OffsetCanCheck()
-    offset_can_check.start()
+    #offset_can_check = OffsetCanCheck()
+    #offset_can_check.start()
     
-    dist_can_check = CanDistCheck()
-    dist_can_check.start()
+    #dist_can_check = CanDistCheck()
+    #dist_can_check.start()
     
     sleep(3)
     
@@ -158,7 +158,7 @@ class OffsetCanCheck(threading.Thread):
     def stop():
         self.interrupt = True
 
-class CanDistCheck(threading.Thread):
+"""class CanDistCheck(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self.interrupt = False
@@ -174,7 +174,7 @@ class CanDistCheck(threading.Thread):
                 sleep(CAN_DIST_CHECK_INTERVAL)
 
     def stop():
-        self.interrupt = True
+        self.interrupt = True"""
 
 #This has been TESTED INDEPENDENTLY (i.e. in python console)
 #Convert angle to between 0 and 360
