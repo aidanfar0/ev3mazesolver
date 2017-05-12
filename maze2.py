@@ -8,7 +8,8 @@ import sys, os, threading
 This should be the amount of time that the robot takes to
 Get from just detecting that the left side is open (ultrasonic)
 To getting to the midpoint of the walls"""
-TURN_WAIT = 1 #NEEDS CALIBRATION
+TURN_WAIT = 1.1  #NEEDS CALIBRATION
+
 #Amount of time to wait after turning to continue again
 TURN_STOP_WAIT = 2
 #How many centimeters the robot must be "off-center' in order to correct it
@@ -24,7 +25,7 @@ CAN_DIST_CHECK_INTERVAL = 0.05
 #how close to get to to claw the can
 CAN_DIST_THRESHOLD = 3
 
-FORWARD_SPEED = 60
+FORWARD_SPEED = 45
 
 TURN_SPEED = 25
 
@@ -41,7 +42,8 @@ assert US_T_DIR == MAZE_DIR
 
 #NEEDS CALIBRATION
 #Greater than distance from ultrasonic to wall
-US_WALL_DIST = 17
+US_WALL_DIST = 30
+FUS_WALL_DIST = 110
 
 #Connect motors
 rightMotor = LargeMotor(OUTPUT_D)
@@ -66,12 +68,12 @@ assert gs.connected
 #Move slightly in one direction, use THIS as a turning direction,
 leftMotorTrim = 0
 rightMotorTrim = 0
-leftMotorTrim2 = 0
+leftMotorTrim2 = 1
 rightMotorTrim2 = 0
 
 isTurning = False
 #Flag if the program is going forward but waiting to turn
-turningWaiting = False
+turningWaiting = True
 #Flag when it's moving toward the center of the intersection
 
 #isCan = False #generally doing an operation with the can
@@ -79,7 +81,7 @@ movingToCan = False #moving towards the can
 lostCan = False #when it found the can, but lost it (probably due to the robot not going straight to it)
 
 #When we have yet to detect the ultrasonic on the side
-recentlyTurned = True
+recentlyTurned = False
 
 #Checks if there is a place to turn left
 def foundCan():
@@ -89,7 +91,7 @@ def canTurn():
     if recentlyTurned:
         return False
     else:
-        print("Current Wall: %d" % usT.value())
+        print("Current SIDE Wall: %d" % usT.value())
         if usT.value() > US_WALL_DIST:
             return True
         else:
@@ -97,7 +99,8 @@ def canTurn():
     #return (not recentlyTurned) and usT.value() > US_WALL_DIST
 
 def canGoForward():
-    return usF.value() > US_WALL_DIST
+    print("Current FRNT Wall: %d" % usF.value())
+    return usF.value() > FUS_WALL_DIST
 
 def getCan():
     movingToCan = True
@@ -110,7 +113,7 @@ def getCan():
     #dist_can_check = CanDistCheck()
     #dist_can_check.start()
     
-    sleep(3)
+    sleep(1.5)
     
     
     #while(usF.value() < CAN_DIST_THRESHOLD):
@@ -208,8 +211,8 @@ def stop():
     rightMotor.stop()
 
 def forward():
-    rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - leftMotorTrim - leftMotorTrim2)
-    leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - rightMotorTrim - rightMotorTrim2)
+    rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - leftMotorTrim2) # - leftMotorTrim
+    leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - rightMotorTrim2) # - rightMotorTrim
 
 def turn(dir):
     if(dir == 0):
@@ -227,11 +230,17 @@ def turn(dir):
     #Approaches from the left if turning right
     #As it turns into the direction
     
-    sleep(1)
-    
-    #while abs(angleRev(gs.value() - target)) > 0:
-    #    print("%d" % gs.value());
+    sleep(1.3)
+    #print("ANGLE: %d" % angleRev(gs.value()));
+    #print("TARGET: %d" % angleRev(target))
+    #print("DISTANCE: %d" % dir*(angleRev(angleRev(gs.value()) - angleRev(target))))
+    #
+    #while dir*(angleRev(angleRev(gs.value()) - angleRev(target))) > 5 :
+    #    print("ANGLE: %d" % angleRev(gs.value()));
+    #    print("TARGET: %d" % angleRev(target))
+    #    print("DISTANCE: %d" % dir*(angleRev(angleRev(gs.value()) - angleRev(target))))
     #    sleep(TURN_CHECK_INTERVAL)
+    
     print("Finished turn")
     
     stop()
@@ -243,23 +252,23 @@ def turn(dir):
 #Reset/Run a new one every time you move on from an intersection
 class OffsetCheck(threading.Thread):
     #After the ultrasonic has passed the wall, this is the distance it detects
-    initialAngle = 0
     
     def __init__(self):
         threading.Thread.__init__(self)
         self.interrupt = False
-        initialAngle = gs.value()
+        #initialAngle = gs.value()
     
     def reset(self):
-        initialAngle = gs.value()
+        #initialAngle = gs.value()
         self.interrupt = False
         leftMotorTrim = 0
         rightMotorTrim = 0
     
     #Checking for any change in direction
     def run(self):
+        initialAngle = gs.value()
         while not self.interrupt:
-            if isTurning or turningWaiting or movingToCan:
+            if isTurning or movingToCan:
                 #Wait until not turning anymore
                 sleep(TURN_CHECK_INTERVAL)
                 #Set initial variables (for if it stopped turning)
@@ -271,17 +280,19 @@ class OffsetCheck(threading.Thread):
                 angle = gs.value()
                 #difference: >0 when leaning right, and <0 when leaning left
                 difference = angle - initialAngle
+                #print("CHECKING OFFSET")
                 #Reset trims
                 rightMotorTrim = 0
                 leftMotorTrim = 0
+                #print("Difference: %d" % difference)
                 if difference > ANGLE_CORRECT_THRESHOLD:
                     #Turn it left by reducing right motor:
                     rightMotorTrim = difference
-                    print("TRIM: LEFT " + difference)
+                    #print("TRIM: LEFT %d" % difference)
                 elif difference < -ANGLE_CORRECT_THRESHOLD:
                     #Turn it right by reducing left motor:
                     leftMotorTrim = -difference
-                    print("TRIM: RIGHT " + difference)
+                    #print("TRIM: RIGHT %d" % difference)
                 
                 sleep(ANGLE_CORRECT_INTERVAL)
         
@@ -293,7 +304,7 @@ class OffsetCheck(threading.Thread):
 
 
 #Uses the ultrasonic sensor to detect when it's heading off-course
-class OffsetCheckUS(threading.Thread):
+"""class OffsetCheckUS(threading.Thread):
     #After the ultrasonic has passed the wall, this is the distance it detects
     initialDist = 0
     foundWall = False
@@ -315,7 +326,7 @@ class OffsetCheckUS(threading.Thread):
                 #Wait until not turning anymore
                 sleep(TURN_CHECK_INTERVAL)
                 #Set initial variables (for if it stopped turning)
-                initialAngle = usT.value()
+                initialDist = usT.value()
                 leftMotorTrim2 = 0
                 rightMotorTrim2 = 0
             elif not foundWall:
@@ -350,7 +361,7 @@ class OffsetCheckUS(threading.Thread):
         self.interrupt = True
         leftMotorTrim2 = 0
         rightMotorTrim2 = 0
-
+"""
 
 
 offset_check_thread = OffsetCheck()
@@ -362,34 +373,34 @@ while True:
     if usT.value() < US_WALL_DIST:
         recentlyTurned = False
         print("Now it works")
+    
+    if foundCan():
+        getCan()
+        print("FOUND CAN")
+    elif (not recentlyTurned) and canTurn():
+        print("CAN TURN")
+        stop()
+        sleep(0.5)
+        
+        turningWaiting = True
+        sleep(TURN_WAIT)
+        turningWaiting = False
+        turn(MAZE_DIR)
+        recentlyTurned = True
+        turningWaiting = True
+        forward()
+    elif canGoForward():
+        print("CAN GO FORWARD")
+        forward()
     else:
-        if foundCan():
-            getCan()
-            print("FOUND CAN")
-        elif (not recentlyTurned) and canTurn():
-            print("CAN TURN")
-            stop()
-            sleep(0.5)
-            
-            turningWaiting = True
-            sleep(TURN_WAIT)
-            turningWaiting = False
-            turn(MAZE_DIR)
-            recentlyTurned = True
-            turningWaiting = True
-            forward()
-        elif canGoForward():
-            print("CAN GO FORWARD")
-            forward()
-        else:
-            print("CANNOT TURN OR GO FORWARD, TURNING RIGHT")
-            stop()
-            sleep(0.5)
-            
-            turningWaiting = True
-            sleep(TURN_WAIT)
-            turningWaiting = False
-            turn(-(MAZE_DIR))
-            recentlyTurned = True
-            turningWaiting = True
-            forward()
+        print("CANNOT TURN OR GO FORWARD, TURNING RIGHT")
+        stop()
+        sleep(0.5)
+        
+        turningWaiting = True
+        sleep(TURN_WAIT)
+        turningWaiting = False
+        turn(-(MAZE_DIR))
+        recentlyTurned = True
+        turningWaiting = True
+        forward()
