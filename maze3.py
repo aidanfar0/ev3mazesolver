@@ -58,7 +58,7 @@ assert US_T_DIR == MAZE_DIR
 
 #NEEDS CALIBRATION
 #Greater than distance from ultrasonic to wall
-US_WALL_DIST = 25
+US_WALL_DIST = 30
 FUS_WALL_DIST = 110
 
 #Connect motors
@@ -130,12 +130,11 @@ usF_value = usF.value()
 gs_value = gs.value()
 cs_red = cs.red
 
-
-
 def calibrateGyro():
     gs.mode = 'GYRO-RATE'
     gs.mode = 'GYRO-ANG'
-    sleep(1)
+    while (not(gs.value() = 0)):
+        pass
 
 #Checks if there is a place to turn left
 def foundCan():
@@ -347,7 +346,7 @@ class OffsetCheckUS(threading.Thread):
                 initialDist = usT_value
                 leftMotorTrim2 = 0
                 rightMotorTrim2 = 0
-            elif not self.foundWall:
+            elif (not self.foundWall) and (not recentlyTurned):
                 print("Waiting to find the wall")
                 #Check if the wall is found
                 if usT_value < US_WALL_DIST:
@@ -356,6 +355,13 @@ class OffsetCheckUS(threading.Thread):
                 else:
                     self.foundWall = False
                     sleep(ANGLE_CORRECT_INTERVAL)
+            elif recentlyTurned:
+                #Constant speed, because we don't know the trim
+                
+                rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
+                leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
+                sleep(ANGLE_CORRECT_INTERVAL)
+                
             elif self.foundWall:
                 #Use ultrasonic sensor to correct the trim of the wheels
                 dist = usT_value
@@ -378,10 +384,8 @@ class OffsetCheckUS(threading.Thread):
                     leftMotorTrim2 = -difference
                     #print("TRIM: RIGHT %d" % difference)
                 
-                forward()
-                
-                rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - leftMotorTrim2) # - leftMotorTrim
-                leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - rightMotorTrim2) # - rightMotorTrim
+                rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - leftMotorTrim2)
+                leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - rightMotorTrim2)
                 sleep(ANGLE_CORRECT_INTERVAL)
         
     #Stop Thread
@@ -427,6 +431,7 @@ def mainFunc():
             elif canGoForward():
                 print("CAN GO FORWARD")
                 forward()
+                calibrateGyro()
             else:
                 print("CANNOT TURN OR GO FORWARD, TURNING RIGHT")
                 stop()
