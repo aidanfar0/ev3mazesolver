@@ -25,6 +25,9 @@ CAN_DIST_CHECK_INTERVAL = 0.05
 #how close to get to to claw the can
 CAN_DIST_THRESHOLD = 3
 
+#Minimum amount of power to the motors when turning and getting closer
+MIN_TURN_POWER = 15
+
 FORWARD_SPEED = 45
 
 TURN_SPEED = 25
@@ -223,34 +226,73 @@ def turn(dir):
     gs_start = gs.value()
     target = gs_start + dir*90
     
-    rightMotor.run_direct(duty_cycle_sp=TURN_SPEED * -dir)
-    leftMotor.run_direct(duty_cycle_sp=TURN_SPEED * dir)
+    #rightMotor.run_direct(duty_cycle_sp=TURN_SPEED * -dir)
+    #leftMotor.run_direct(duty_cycle_sp=TURN_SPEED * dir)
     print("Turning...")
     #angleRev(gs.value() () - target) Approaches 0
     #Approaches from the right if turning left
     #Approaches from the left if turning right
     #As it turns into the direction
     
+    turnTo(target)
+    
     #sleep(1.3)
-    print("ANGLE: %d" % angleRev(gs.value()));
-    print("TARGET: %d" % angleRev(target))
+    #print("ANGLE: %d" % angleRev(gs.value()));
+    #print("TARGET: %d" % angleRev(target))
     #print("DISTANCE: %d" % dir*-(angleRev(angleRev(gs.value()) - angleRev(target))))
     
-    while dir*-(angleRev(angleRev(gs.value()) - angleRev(target))) > 5 :
-        print("ANGLE: %d" % angleRev(gs.value()));
-        print("TARGET: %d" % angleRev(target))
-        #print("DISTANCE: %d" % dir*-(angleRev(angleRev(gs.value()) - angleRev(target))))
-        sleep(TURN_CHECK_INTERVAL * 10)
-        
-        if foundCan():
-            getCan()
-            print("FOUND CAN")
+    #while dir*-(angleRev(angleRev(gs.value()) - angleRev(target))) > 5 :
+    #    print("ANGLE: %d" % angleRev(gs.value()));
+    #    print("TARGET: %d" % angleRev(target))
+    #    #print("DISTANCE: %d" % dir*-(angleRev(angleRev(gs.value()) - angleRev(target))))
+    #    sleep(TURN_CHECK_INTERVAL * 10)
+    #    
+    #    if foundCan():
+    #        getCan()
+    #        print("FOUND CAN")
     
     print("Finished turn")
     
     stop()
     sleep(TURN_STOP_WAIT)
     isTurning = False
+
+#Turn the robot until it reaches the target angle
+def turnTo(target):
+    #>0 means robot is too far to the right, <0 too far to the left
+    angle = gs.value()
+    difference = angleRev(angle - target)
+    print("Target: %d" % target)
+    
+    while abs(difference) > 0:
+        angle = gs.value()
+        difference = angleRev(angle - target)
+        print("Difference: %d" % difference)
+        if difference > 0:
+            dir = 1
+        else:
+            dir = -1
+        
+        #Caps the difference at 90
+        if abs(difference) > 90:
+            difference = dir * 90
+        
+        #It slows down when it gets closer
+        #But it's always at least 15
+        
+        rightMotor.run_direct(duty_cycle_sp=(TURN_SPEED - MIN_TURN_POWER) *  difference / 90 + MIN_TURN_POWER *  dir)
+        leftMotor.run_direct( duty_cycle_sp=(TURN_SPEED - MIN_TURN_POWER) * -difference / 90 + MIN_TURN_POWER * -dir)
+        
+        sleep(TURN_CHECK_INTERVAL)
+    stop()
+    
+    sleep(TURN_CHECK_INTERVAL*20)
+    #Wait for gyro to calm down or something
+    angle = gs.value()
+    difference = angleRev(angle - target)
+    if difference > 2:
+        print("Target reached then unreached")
+        turnTo(target)
 
 
 #Thread to check if the robot is moving off-course when going straight
@@ -367,50 +409,57 @@ class OffsetCheckUS(threading.Thread):
         leftMotorTrim2 = 0
         rightMotorTrim2 = 0
 
+def mainFunc():
+
+    #offset_check_thread = OffsetCheck()
+    #offset_check_thread.start()
+    offset_check_thread = OffsetCheckUS()
+    offset_check_thread.start()
 
 
-#offset_check_thread = OffsetCheck()
-#offset_check_thread.start()
-offset_check_thread = OffsetCheckUS()
-offset_check_thread.start()
-
-
-#Main thread
-while True:
-    if movingToCan:
-        sleep(0.5)
-    else:
-        if (usT.value() < US_WALL_DIST) and (recentlyTurned):
-            recentlyTurned = False
-            print("Now it works")
-        
-        if foundCan():
-            getCan()
-            print("FOUND CAN")
-        elif (not recentlyTurned) and canTurn():
-            print("CAN TURN")
-            stop()
+    #Main thread
+    while True:
+        if movingToCan:
             sleep(0.5)
-            
-            turningWaiting = True
-            sleep(TURN_WAIT)
-            turningWaiting = False
-            turn(MAZE_DIR)
-            recentlyTurned = True
-            turningWaiting = True
-            forward()
-        elif canGoForward():
-            print("CAN GO FORWARD")
-            forward()
         else:
-            print("CANNOT TURN OR GO FORWARD, TURNING RIGHT")
-            stop()
-            sleep(0.5)
+            if (usT.value() < US_WALL_DIST) and (recentlyTurned):
+                recentlyTurned = False
+                print("Now it works")
             
-            turningWaiting = True
-            sleep(TURN_WAIT)
-            turningWaiting = False
-            turn(-(MAZE_DIR))
-            recentlyTurned = True
-            turningWaiting = True
-            forward()
+            if foundCan():
+                getCan()
+                print("FOUND CAN")
+            elif (not recentlyTurned) and canTurn():
+                print("CAN TURN")
+                stop()
+                sleep(0.5)
+                
+                turningWaiting = True
+                sleep(TURN_WAIT)
+                turningWaiting = False
+                turn(MAZE_DIR)
+                recentlyTurned = True
+                turningWaiting = True
+                forward()
+            elif canGoForward():
+                print("CAN GO FORWARD")
+                forward()
+            else:
+                print("CANNOT TURN OR GO FORWARD, TURNING RIGHT")
+                stop()
+                sleep(0.5)
+                
+                turningWaiting = True
+                sleep(TURN_WAIT)
+                turningWaiting = False
+                turn(-(MAZE_DIR))
+                recentlyTurned = True
+                turningWaiting = True
+                forward()
+
+#Runs the code if this python .py file is not imported
+#This is because we may want to test the functions individually
+#Using the command-line python, and we can just import this
+#File, but not have the main function run.
+if __name__ == '__main__':
+    mainFunc()
