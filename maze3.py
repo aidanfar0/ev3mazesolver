@@ -25,6 +25,10 @@ ANGLE_CORRECT_INTERVAL = 0.1
 TURN_CHECK_INTERVAL = 0.05
 #interval to check if the can is near
 CAN_DIST_CHECK_INTERVAL = 0.05
+
+#How much red the sensor needs to detect the can
+COLOUR_THRESHOLD = 2
+
 #how close to get to to claw the can
 #This is so that it doesn't bump into the end of the maze
 CAN_DIST_THRESHOLD = 100
@@ -32,11 +36,16 @@ CAN_DIST_THRESHOLD = 100
 #Minimum amount of power to the motors when turning and getting closer
 MIN_TURN_POWER = 15
 
+#How fast it goes forward
 FORWARD_SPEED = 45
 
+#How fas the wheels turn on the spot
 TURN_SPEED = 25
 
+#How fast to go forward when fond the can
 CAN_FORWARD_SPEED = 25
+
+#How fast to turn when found the can
 CAN_TURN_SPEED = 10
 
 #DON'T CHANGE THESE 2:
@@ -95,22 +104,31 @@ isForward = False
 #When we have yet to detect the ultrasonic on the side
 recentlyTurned = False
 
-def refresh_val():
+
+def refresh_val_thread():
     global usT_value
     global usF_value
     global gs_value
-    global cs_value
-    usT_value = usT.value()
-    usF_value = usF.value()
-    gs_value = gs.value()
-    cs_value = cs.value()
-
-def refresh_val_thread():
+    global cs_red
     while True:
-        refresh_val()
+        usT_value = usT.value()
+        usF_value = usF.value()
+        gs_value = gs.value()
+        cs_red = cs.red
+    
+        sleep(0.01)
+        
+        usT_value = usT.value()
+        usF_value = usF.value()
+        gs_value = gs.value()
+        
         sleep(0.01)
 
-refresh_val()
+
+usT_value = usT.value()
+usF_value = usF.value()
+gs_value = gs.value()
+cs_red = cs.red
 
 
 
@@ -121,7 +139,7 @@ def calibrateGyro():
 
 #Checks if there is a place to turn left
 def foundCan():
-    return cs.red > 1
+    return cs_red > COLOUR_THRESHOLD
     #return cs.color == 5 #red = 5
 
 def canTurn():
