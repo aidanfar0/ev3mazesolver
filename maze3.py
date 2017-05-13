@@ -64,7 +64,7 @@ assert cs.connected
 #Forward ultrasonic sensor
 usF = UltrasonicSensor(INPUT_3)
 assert usF.connected
-#Turned ultrasonic sensor
+#Side ultrasonic sensor
 usT = UltrasonicSensor(INPUT_4)
 assert usT.connected
 
@@ -96,6 +96,21 @@ isForward = False
 #When we have yet to detect the ultrasonic on the side
 recentlyTurned = False
 
+def refresh_val():
+    usT_val = usT_value
+    usF_val = usF_value
+    gs_val = gs_value
+    cs_val = cs_value
+
+def refresh_val_thread():
+    while True:
+        refresh_val()
+        sleep(0.01)
+
+refresh_val()
+
+
+
 def calibrateGyro():
     gs.mode = 'GYRO-RATE'
     gs.mode = 'GYRO-ANG'
@@ -110,16 +125,16 @@ def canTurn():
     if recentlyTurned:
         return False
     else:
-        #TEMP: print("Current SIDE Wall: %d" % usT.value())
-        if usT.value() > US_WALL_DIST:
+        #TEMP: print("Current SIDE Wall: %d" % usT_value)
+        if usT_value > US_WALL_DIST:
             return True
         else:
             return False
-    #return (not recentlyTurned) and usT.value() > US_WALL_DIST
+    #return (not recentlyTurned) and usT_value > US_WALL_DIST
 
 def canGoForward():
-    #TEMP: print("Current FRNT Wall: %d" % usF.value())
-    return usF.value() > FUS_WALL_DIST
+    #TEMP: print("Current FRNT Wall: %d" % usF_value)
+    return usF_value > FUS_WALL_DIST
 
 def getCan():
     movingToCan = True
@@ -135,7 +150,7 @@ def getCan():
     #sleep(1.5)
     
     #Goes for the can until the maze wall is reached
-    while(usF.value() < CAN_DIST_THRESHOLD) and foundCan():
+    while(usF_value < CAN_DIST_THRESHOLD) and foundCan():
         print("Moving towards can...")
     
     sleep(0.5)
@@ -211,13 +226,13 @@ def turn(dir):
         return
     
     isTurning = True
-    gs_start = gs.value()
+    gs_start = gs_value
     target = gs_start + dir*90
     
     #rightMotor.run_direct(duty_cycle_sp=TURN_SPEED * -dir)
     #leftMotor.run_direct(duty_cycle_sp=TURN_SPEED * dir)
     print("Turning...")
-    #angleRev(gs.value() () - target) Approaches 0
+    #angleRev(gs_value () - target) Approaches 0
     #Approaches from the right if turning left
     #Approaches from the left if turning right
     #As it turns into the direction
@@ -225,14 +240,14 @@ def turn(dir):
     turnTo(target)
     
     #sleep(1.3)
-    #print("ANGLE: %d" % angleRev(gs.value()));
+    #print("ANGLE: %d" % angleRev(gs_value));
     #print("TARGET: %d" % angleRev(target))
-    #print("DISTANCE: %d" % dir*-(angleRev(angleRev(gs.value()) - angleRev(target))))
+    #print("DISTANCE: %d" % dir*-(angleRev(angleRev(gs_value) - angleRev(target))))
     
-    #while dir*-(angleRev(angleRev(gs.value()) - angleRev(target))) > 5 :
-    #    print("ANGLE: %d" % angleRev(gs.value()));
+    #while dir*-(angleRev(angleRev(gs_value) - angleRev(target))) > 5 :
+    #    print("ANGLE: %d" % angleRev(gs_value));
     #    print("TARGET: %d" % angleRev(target))
-    #    #print("DISTANCE: %d" % dir*-(angleRev(angleRev(gs.value()) - angleRev(target))))
+    #    #print("DISTANCE: %d" % dir*-(angleRev(angleRev(gs_value) - angleRev(target))))
     #    sleep(TURN_CHECK_INTERVAL * 10)
     #    
     #    if foundCan():
@@ -248,12 +263,12 @@ def turn(dir):
 #Turn the robot until it reaches the target angle
 def turnTo(target):
     #>0 means robot is too far to the right, <0 too far to the left
-    angle = gs.value()
+    angle = gs_value
     difference = angleRev(angle - target)
     print("Target: %d" % target)
     
     while abs(difference) > 0:
-        angle = gs.value()
+        angle = gs_value
         difference = angleRev(angle - target)
         #print("[TURN] Difference: %d" % difference)
         if difference > 0:
@@ -276,7 +291,7 @@ def turnTo(target):
     
     sleep(TURN_CHECK_INTERVAL*20)
     #Wait for gyro to calm down or something
-    angle = gs.value()
+    angle = gs_value
     difference = angleRev(angle - target)
     if difference > 2:
         print("Target reached then unreached")
@@ -291,28 +306,28 @@ class OffsetCheck(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
         self.interrupt = False
-        #initialAngle = gs.value()
+        #initialAngle = gs_value
     
     def reset(self):
-        #initialAngle = gs.value()
+        #initialAngle = gs_value
         self.interrupt = False
         leftMotorTrim = 0
         rightMotorTrim = 0
     
     #Checking for any change in direction
     def run(self):
-        initialAngle = gs.value()
+        initialAngle = gs_value
         while not self.interrupt:
             if isTurning or movingToCan:
                 #Wait until not turning anymore
                 sleep(TURN_CHECK_INTERVAL)
                 #Set initial variables (for if it stopped turning)
-                initialAngle = gs.value()
+                initialAngle = gs_value
                 leftMotorTrim = 0
                 rightMotorTrim = 0
             else:
                 #Use gyroscope to correct the trim of the wheels
-                angle = gs.value()
+                angle = gs_value
                 #difference: >0 when leaning right, and <0 when leaning left
                 difference = angle - initialAngle
                 #print("CHECKING OFFSET")
@@ -349,7 +364,7 @@ class OffsetCheckUS(threading.Thread):
         self.interrupt = False
     
     def reset(self):
-        initialDist = usT.value()
+        initialDist = usT_value
         self.interrupt = False
         leftMotorTrim2 = 0
         rightMotorTrim2 = 0
@@ -364,21 +379,21 @@ class OffsetCheckUS(threading.Thread):
                 sleep(TURN_CHECK_INTERVAL)
                 #Set initial variables (for if it stopped turning)
                 self.foundWall = False
-                initialDist = usT.value()
+                initialDist = usT_value
                 leftMotorTrim2 = 0
                 rightMotorTrim2 = 0
             elif not self.foundWall:
                 print("Waiting to find the wall")
                 #Check if the wall is found
-                if usT.value() < US_WALL_DIST:
+                if usT_value < US_WALL_DIST:
                     self.foundWall = True
-                    initialDist = usT.value()
+                    initialDist = usT_value
                 else:
                     self.foundWall = False
                     sleep(ANGLE_CORRECT_INTERVAL)
             elif self.foundWall:
                 #Use ultrasonic sensor to correct the trim of the wheels
-                dist = usT.value()
+                dist = usT_value
                 #difference: >0 when leaning right, and <0 when leaning left
                 difference = -1 * US_T_DIR * (dist - DIST_CORRECT_TARGET)#initialDist)
                 if difference > 200:
@@ -411,7 +426,10 @@ class OffsetCheckUS(threading.Thread):
         rightMotorTrim2 = 0
 
 def mainFunc():
-
+    #Runs the functions that get sensor values
+    refresh_thread = Thread(target = refresh_val_thread)
+    refresh_thread.start()
+    
     #offset_check_thread = OffsetCheck()
     #offset_check_thread.start()
     offset_check_thread = OffsetCheckUS()
@@ -425,7 +443,7 @@ def mainFunc():
             isForward = False
             sleep(0.5)
         else:
-            if (usT.value() < US_WALL_DIST) and (recentlyTurned):
+            if (usT_value < US_WALL_DIST) and (recentlyTurned):
                 recentlyTurned = False
                 print("Now it works")
             
