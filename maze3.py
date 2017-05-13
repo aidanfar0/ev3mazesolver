@@ -97,10 +97,14 @@ isForward = False
 recentlyTurned = False
 
 def refresh_val():
-    usT_val = usT_value
-    usF_val = usF_value
-    gs_val = gs_value
-    cs_val = cs_value
+    global usT_value
+    global usF_value
+    global gs_value
+    global cs_value
+    usT_value = usT.value()
+    usF_value = usF.value()
+    gs_value = gs.value()
+    cs_value = cs.value()
 
 def refresh_val_thread():
     while True:
@@ -427,7 +431,7 @@ class OffsetCheckUS(threading.Thread):
 
 def mainFunc():
     #Runs the functions that get sensor values
-    refresh_thread = Thread(target = refresh_val_thread)
+    refresh_thread = threading.Thread(target = refresh_val_thread)
     refresh_thread.start()
     
     #offset_check_thread = OffsetCheck()
