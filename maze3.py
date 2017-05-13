@@ -59,7 +59,7 @@ assert US_T_DIR == MAZE_DIR
 #NEEDS CALIBRATION
 #Greater than distance from ultrasonic to wall
 US_WALL_DIST = 30
-FUS_WALL_DIST = 110
+FUS_WALL_DIST = 120
 
 #Connect motors
 rightMotor = LargeMotor(OUTPUT_D)
@@ -115,14 +115,8 @@ def refresh_val_thread():
         usF_value = usF.value()
         gs_value = gs.value()
         cs_red = cs.red
-    
-        sleep(0.01)
         
-        usT_value = usT.value()
-        usF_value = usF.value()
-        gs_value = gs.value()
-        
-        sleep(0.01)
+        sleep(.01)
 
 
 usT_value = usT.value()
@@ -133,7 +127,7 @@ cs_red = cs.red
 def calibrateGyro():
     gs.mode = 'GYRO-RATE'
     gs.mode = 'GYRO-ANG'
-    while (not(gs.value() = 0)):
+    while (not(gs.value() == 0)):
         pass
 
 #Checks if there is a place to turn left
@@ -244,6 +238,11 @@ def forward():
 def turn(dir):
     if(dir == 0):
         return
+    elif dir>0:
+        Sound.speak("Turning right")
+    else:
+        Sound.speak("Turning left")
+    
     
     isTurning = True
     gs_start = gs_value
@@ -321,7 +320,7 @@ def turnTo(target):
 class OffsetCheckUS(threading.Thread):
     #After the ultrasonic has passed the wall, this is the distance it detects
     initialDist = 0
-    foundWall = False
+    foundWall = recentlyTurned
     
     def __init__(self):
         threading.Thread.__init__(self)
@@ -402,6 +401,7 @@ offset_check_thread = OffsetCheckUS()
 offset_check_thread.start()
 
 def mainFunc():
+    hasntFoundCan = True
     recentlyTurned = False
     global isForward
     
@@ -416,17 +416,19 @@ def mainFunc():
                 print("Now it works")
             
             if foundCan():
-                offset_check_thread.isForward = False
+                if hasntFoundCan:
+                    hasntFoundCan = False
+                    Sound.beep()
+                    Sound.speak("I found the object")
+                isForward = False
                 getCan()
                 print("FOUND CAN")
             elif (not recentlyTurned) and canTurn():
                 print("CAN TURN")
-                stop()
-                calibrateGyro()
+                recentlyTurned = True
                 
                 sleep(TURN_WAIT)
                 turn(MAZE_DIR)
-                recentlyTurned = True
                 forward()
             elif canGoForward():
                 print("CAN GO FORWARD")
@@ -435,7 +437,6 @@ def mainFunc():
             else:
                 print("CANNOT TURN OR GO FORWARD, TURNING RIGHT")
                 stop()
-                calibrateGyro()
                 
                 sleep(TURN_WAIT)
                 turn(-(MAZE_DIR))
