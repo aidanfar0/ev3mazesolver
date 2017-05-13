@@ -80,8 +80,6 @@ leftMotorTrim2 = 1
 rightMotorTrim2 = 0
 
 isTurning = False
-#Flag if the program is going forward but waiting to turn
-turningWaiting = True
 #Flag when it's moving toward the center of the intersection
 
 #isCan = False #generally doing an operation with the can
@@ -91,6 +89,7 @@ lostCan = False #when it found the can, but lost it (probably due to the robot n
 #Flags when moving forward
 global isForward
 global offset_check_thread
+noTrim = False
 isForward = False
 
 #When we have yet to detect the ultrasonic on the side
@@ -215,7 +214,7 @@ def angleRev(angle):
             
 def stop():
     global isForward
-    ifForward = False
+    isForward = False
     leftMotor.stop(stop_action='brake')
     rightMotor.stop(stop_action='brake')
     leftMotor.stop()
@@ -301,62 +300,6 @@ def turnTo(target):
         print("Target reached then unreached")
         turnTo(target)
 
-
-#Thread to check if the robot is moving off-course when going straight
-#Reset/Run a new one every time you move on from an intersection
-class OffsetCheck(threading.Thread):
-    #After the ultrasonic has passed the wall, this is the distance it detects
-    
-    def __init__(self):
-        threading.Thread.__init__(self)
-        self.interrupt = False
-        #initialAngle = gs_value
-    
-    def reset(self):
-        #initialAngle = gs_value
-        self.interrupt = False
-        leftMotorTrim = 0
-        rightMotorTrim = 0
-    
-    #Checking for any change in direction
-    def run(self):
-        initialAngle = gs_value
-        while not self.interrupt:
-            if isTurning or movingToCan:
-                #Wait until not turning anymore
-                sleep(TURN_CHECK_INTERVAL)
-                #Set initial variables (for if it stopped turning)
-                initialAngle = gs_value
-                leftMotorTrim = 0
-                rightMotorTrim = 0
-            else:
-                #Use gyroscope to correct the trim of the wheels
-                angle = gs_value
-                #difference: >0 when leaning right, and <0 when leaning left
-                difference = angle - initialAngle
-                #print("CHECKING OFFSET")
-                #Reset trims
-                rightMotorTrim = 0
-                leftMotorTrim = 0
-                #print("Difference: %d" % difference)
-                if difference > ANGLE_CORRECT_THRESHOLD:
-                    #Turn it left by reducing right motor:
-                    rightMotorTrim = difference
-                    #print("TRIM: LEFT %d" % difference)
-                elif difference < -ANGLE_CORRECT_THRESHOLD:
-                    #Turn it right by reducing left motor:
-                    leftMotorTrim = -difference
-                    #print("TRIM: RIGHT %d" % difference)
-                
-                sleep(ANGLE_CORRECT_INTERVAL)
-        
-    #Stop Thread
-    def stop(self):
-        self.interrupt = True
-        leftMotorTrim = 0
-        rightMotorTrim = 0
-
-
 #Uses the ultrasonic sensor to detect when it's heading off-course
 class OffsetCheckUS(threading.Thread):
     #After the ultrasonic has passed the wall, this is the distance it detects
@@ -377,7 +320,7 @@ class OffsetCheckUS(threading.Thread):
     def run(self):
         while not self.interrupt:
             #print("isForward: %s, foundWall: %s" % ("True" if isForward else "False", "True" if self.foundWall else "False"))
-            if not isForward: #isTurning or turningWaiting or movingToCan:
+            if (not isForward) or noTrim: #isTurning:
                 #print("Waiting to go forward")
                 #Wait until not turning anymore
                 sleep(TURN_CHECK_INTERVAL)
@@ -429,15 +372,14 @@ class OffsetCheckUS(threading.Thread):
         leftMotorTrim2 = 0
         rightMotorTrim2 = 0
 
+#Runs the functions that get sensor values
+refresh_thread = threading.Thread(target = refresh_val_thread)
+refresh_thread.start()
+
+offset_check_thread = OffsetCheckUS()
+offset_check_thread.start()
+
 def mainFunc():
-    #Runs the functions that get sensor values
-    refresh_thread = threading.Thread(target = refresh_val_thread)
-    refresh_thread.start()
-    
-    #offset_check_thread = OffsetCheck()
-    #offset_check_thread.start()
-    offset_check_thread = OffsetCheckUS()
-    offset_check_thread.start()
     recentlyTurned = False
     global isForward
     
@@ -456,33 +398,25 @@ def mainFunc():
                 getCan()
                 print("FOUND CAN")
             elif (not recentlyTurned) and canTurn():
-                #isForward = False
                 print("CAN TURN")
                 stop()
-                turningWaiting = True
                 calibrateGyro()
                 
                 sleep(TURN_WAIT)
-                turningWaiting = False
                 turn(MAZE_DIR)
                 recentlyTurned = True
-                turningWaiting = True
                 forward()
             elif canGoForward():
                 print("CAN GO FORWARD")
                 forward()
             else:
-                #isForward = False
                 print("CANNOT TURN OR GO FORWARD, TURNING RIGHT")
                 stop()
-                turningWaiting = True
                 calibrateGyro()
                 
                 sleep(TURN_WAIT)
-                turningWaiting = False
                 turn(-(MAZE_DIR))
                 recentlyTurned = True
-                turningWaiting = True
                 forward()
 
 #Runs the code if this python .py file is not imported
