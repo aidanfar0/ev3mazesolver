@@ -20,7 +20,7 @@ DIST_CORRECT_THRESHOLD = 3
 #How many degrees the robot must turn in order to correct the turn
 ANGLE_CORRECT_THRESHOLD = 10
 #Maximum it should aim to turn to correct for angle
-ANGLE_MAX_CORRECT = 20
+ANGLE_MAX_CORRECT = 10
 #How many seconds to check for angle correction
 ANGLE_CORRECT_INTERVAL = 0.05
 
@@ -512,7 +512,7 @@ class OffsetCheckUS(threading.Thread):
     #Checking for any change in direction
     def run(self):
         global recentlyTurned
-        echoConstantSpeed = True
+        firstConstantSpeed = True
         while not self.interrupt:
             #print("isForward: %s, foundWall: %s" % ("True" if isForward else "False", "True" if self.foundWall else "False"))
             if (not isForward) or movingToCan: #isTurning:
@@ -524,56 +524,16 @@ class OffsetCheckUS(threading.Thread):
                 #initialDist = usT_value
                 leftMotorTrim2 = 0
                 rightMotorTrim2 = 0
-                echoConstantSpeed = True
+                firstConstantSpeed = True
                 self.gs_start = angleRev(gs_queue_last)
             elif recentlyTurned or noTrim:
                 #Constant speed, because we don't know the trim
-                if echoConstantSpeed:
+                if firstConstantSpeed:
                     print("[Forward]Constant speed")
-                echoConstantSpeed = False
+                    self.gs_start = gs_value
                 
-                rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
-                leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
-                sleep(ANGLE_CORRECT_INTERVAL)
-                self.gs_start = angleRev(gs_queue_last)
-            elif not self.foundWall:
-                echoConstantSpeed = True
-                #Check if the wall is found
-                if usT_queue_last < US_WALL_DIST:
-                    self.foundWall = True
-                    #initialDist = usT_value
-                    print("[Forward]Found the wall again")
-                else:
-                    self.foundWall = False
-                    sleep(ANGLE_CORRECT_INTERVAL)
-                
-                self.gs_start = angleRev(gs_queue_last)
-            elif self.foundWall:
-                echoConstantSpeed = True
-                #Use ultrasonic sensor to correct the trim of the wheels
-                #difference: >0 when leaning right, and <0 when leaning left
-                us_difference = US_T_DIR * -(usT_value - DIST_CORRECT_TARGET)#initialDist)
-                
-                print("Ultrasonic Target: %d, Current: %d, Diff: %d" % (DIST_CORRECT_TARGET, usT_value, us_difference))
-                
-                if usT_value > 150:
-                    continue
-                    #Very likley that the robot has come too close to the wall for the sensors to work
-                
-                #target_gs_rel: Target angle relative to straight line
-                
-                if us_difference > ANGLE_CORRECT_THRESHOLD:
-                    target_gs_rel = ANGLE_MAX_CORRECT
-                elif us_difference < -ANGLE_CORRECT_THRESHOLD:
-                    target_gs_rel = -ANGLE_MAX_CORRECT
-                else:
-                    target_gs_rel = 0
-                
-                if self.gs_start > 180: #First gyro value
-                    self.gs_start = angleRev(gs_queue_last)
-                
-                #Where to turn to
-                target_gs = angleRev(self.gs_start + target_gs_rel)
+                #Target the first angle
+                firstConstantSpeed = False
                 
                 #Difference between where the gyro is now, and where it's aimed for
                 gs_difference = angleRev(gs_value - target_gs)
@@ -588,15 +548,59 @@ class OffsetCheckUS(threading.Thread):
                     #Turn it right by reducing left motor:
                     leftMotorTrim2 = -(MIN_TURN_POWER + gs_difference)
                 
-                print("Position %s; Angle %s;" % (("Too far left" if us_difference < ANGLE_CORRECT_THRESHOLD else ("Too far right" if us_difference > ANGLE_CORRECT_THRESHOLD else "Okay")),("Too far left" if gs_difference < 0 else ("Too far right" if gs_difference > 0 else "Okay"))))
+                #print("Position %s; Angle %s;" % (("Too far left" if us_difference < ANGLE_CORRECT_THRESHOLD else ("Too far right" if us_difference > ANGLE_CORRECT_THRESHOLD else "Okay")),("Too far left" if gs_difference < 0 else ("Too far right" if gs_difference > 0 else "Okay"))))
                 
                 leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 
                 rightMotor.run_direct(duty_cycle_sp=leftSpeed)
                 leftMotor.run_direct(duty_cycle_sp=rightSpeed)
-                #sleep(ANGLE_CORRECT_INTERVAL)
-                sleep(0.5)
+                sleep(ANGLE_CORRECT_INTERVAL)
+                
+            elif not self.foundWall:
+                firstConstantSpeed = True
+                #Check if the wall is found
+                if usT_queue_last < US_WALL_DIST:
+                    self.foundWall = True
+                    #initialDist = usT_value
+                    print("[Forward]Found the wall again")
+                else:
+                    self.foundWall = False
+                    sleep(ANGLE_CORRECT_INTERVAL)
+                
+                self.gs_start = angleRev(gs_queue_last)
+            elif self.foundWall:
+                if not firstConstantSpeed:
+                    #Just came out of the constant speed part, so we need to reset 
+                    #They gyro's first value
+                    print("[Forward] Just came out of constant speed")
+                    self.gs_start = gs_value
+                    firstConstantSpeed = True
+                
+                #Target the first angle
+                firstConstantSpeed = False
+                
+                #Difference between where the gyro is now, and where it's aimed for
+                gs_difference = angleRev(gs_value - target_gs)
+                
+                rightMotorTrim2 = 0
+                leftMotorTrim2 = 0
+                
+                if gs_difference > 0:
+                    #Turn it left by reducing right motor:
+                    rightMotorTrim2 = MIN_TURN_POWER + gs_difference  
+                if gs_difference < -0:
+                    #Turn it right by reducing left motor:
+                    leftMotorTrim2 = -(MIN_TURN_POWER + gs_difference)
+                
+                #print("Position %s; Angle %s;" % (("Too far left" if us_difference < ANGLE_CORRECT_THRESHOLD else ("Too far right" if us_difference > ANGLE_CORRECT_THRESHOLD else "Okay")),("Too far left" if gs_difference < 0 else ("Too far right" if gs_difference > 0 else "Okay"))))
+                
+                leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
+                rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
+                
+                rightMotor.run_direct(duty_cycle_sp=leftSpeed)
+                leftMotor.run_direct(duty_cycle_sp=rightSpeed)
+                sleep(ANGLE_CORRECT_INTERVAL)
         
     #Stop Thread
     def stop(self):
