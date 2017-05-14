@@ -27,14 +27,14 @@ TURN_CHECK_INTERVAL = 0.05
 CAN_DIST_CHECK_INTERVAL = 0.05
 
 #How much red the sensor needs to detect the can
-COLOUR_THRESHOLD = 2
+COLOUR_THRESHOLD = -1
 
 #how close to get to to claw the can
 #This is so that it doesn't bump into the end of the maze
 CAN_DIST_THRESHOLD = 100
 
 #Minimum amount of power to the motors when turning and getting closer
-MIN_TURN_POWER = 15
+MIN_TURN_POWER = 10
 
 #How fast it goes forward
 FORWARD_SPEED = 45
@@ -59,7 +59,7 @@ assert US_T_DIR == MAZE_DIR
 #NEEDS CALIBRATION
 #Greater than distance from ultrasonic to wall
 US_WALL_DIST = 30
-FUS_WALL_DIST = 120
+FUS_WALL_DIST = 200
 
 #Connect motors
 rightMotor = LargeMotor(OUTPUT_D)
@@ -98,6 +98,8 @@ lostCan = False #when it found the can, but lost it (probably due to the robot n
 #Flags when moving forward
 global isForward
 global offset_check_thread
+global noTrim
+global recentlyTurned
 noTrim = False
 isForward = False
 
@@ -110,19 +112,25 @@ def refresh_val_thread():
     global usF_value
     global gs_value
     global cs_red
+    global cs_green
+    global cs_blue
     while True:
         usT_value = usT.value()
         usF_value = usF.value()
         gs_value = gs.value()
         cs_red = cs.red
+        cs_green = cs.green
+        cs_blue = cs.blue
         
-        sleep(.01)
+        sleep(.05)
 
 
 usT_value = usT.value()
 usF_value = usF.value()
 gs_value = gs.value()
 cs_red = cs.red
+cs_green = cs.green
+cs_blue = cs.blue
 
 def calibrateGyro():
     gs.mode = 'GYRO-RATE'
@@ -132,7 +140,7 @@ def calibrateGyro():
 
 #Checks if there is a place to turn left
 def foundCan():
-    return cs_red > COLOUR_THRESHOLD
+    return (cs_red > cs_green + COLOUR_THRESHOLD) and (cs_red > cs_blue + COLOUR_THRESHOLD)
     #return cs.color == 5 #red = 5
 
 def canTurn():
@@ -147,7 +155,7 @@ def canTurn():
     #return (not recentlyTurned) and usT_value > US_WALL_DIST
 
 def canGoForward():
-    #TEMP: print("Current FRNT Wall: %d" % usF_value)
+    print("Current FRNT Wall: %d" % usF_value)
     return usF_value > FUS_WALL_DIST
 
 def getCan():
@@ -334,9 +342,10 @@ class OffsetCheckUS(threading.Thread):
     
     #Checking for any change in direction
     def run(self):
+        global recentlyTurned
         while not self.interrupt:
             #print("isForward: %s, foundWall: %s" % ("True" if isForward else "False", "True" if self.foundWall else "False"))
-            if (not isForward) or noTrim: #isTurning:
+            if not isForward: #isTurning:
                 #print("Waiting to go forward")
                 #Wait until not turning anymore
                 sleep(TURN_CHECK_INTERVAL)
@@ -345,21 +354,22 @@ class OffsetCheckUS(threading.Thread):
                 initialDist = usT_value
                 leftMotorTrim2 = 0
                 rightMotorTrim2 = 0
-            elif (not self.foundWall) and (not recentlyTurned):
-                print("Waiting to find the wall")
-                #Check if the wall is found
-                if usT_value < US_WALL_DIST:
-                    self.foundWall = True
-                    initialDist = usT_value
-                else:
-                    self.foundWall = False
-                    sleep(ANGLE_CORRECT_INTERVAL)
-            elif recentlyTurned:
+            elif recentlyTurned or noTrim:
                 #Constant speed, because we don't know the trim
+                print("[Forward]Constant speed")
                 
                 rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
                 leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
                 sleep(ANGLE_CORRECT_INTERVAL)
+            elif not self.foundWall:
+                #Check if the wall is found
+                if usT_value < US_WALL_DIST:
+                    self.foundWall = True
+                    initialDist = usT_value
+                    print("[Forward]Found the wall again")
+                else:
+                    self.foundWall = False
+                    sleep(ANGLE_CORRECT_INTERVAL)
                 
             elif self.foundWall:
                 #Use ultrasonic sensor to correct the trim of the wheels
@@ -401,9 +411,15 @@ offset_check_thread = OffsetCheckUS()
 offset_check_thread.start()
 
 def mainFunc():
+    global DIST_CORRECT_TARGET
+    DIST_CORRECT_TARGET = usT_value
+    print("Distance to left: %d" % DIST_CORRECT_TARGET)
+    
     hasntFoundCan = True
+    global recentlyTurned
     recentlyTurned = False
     global isForward
+    calibrated = False
     
     #Main thread
     while True:
@@ -413,7 +429,7 @@ def mainFunc():
         else:
             if (usT_value < US_WALL_DIST) and (recentlyTurned):
                 recentlyTurned = False
-                print("Now it works")
+                print("[Main]Found wall again")
             
             if foundCan():
                 if hasntFoundCan:
@@ -422,26 +438,36 @@ def mainFunc():
                     Sound.speak("I found the object")
                 isForward = False
                 getCan()
-                print("FOUND CAN")
+                print("[Main] Found Object")
             elif (not recentlyTurned) and canTurn():
-                print("CAN TURN")
+                calibrated = False
+                print("[Main] Left")
                 recentlyTurned = True
                 
                 sleep(TURN_WAIT)
+                isForward = False
                 turn(MAZE_DIR)
-                forward()
+                recentlyTurned = True
             elif canGoForward():
-                print("CAN GO FORWARD")
+                print("[Main] Forward")
                 forward()
-                calibrateGyro()
+                if not calibrated:
+                    calibrated = True
+                    calibrateGyro()
+                if recentlyTurned:
+                    #Currently, the robot is going forward after a turn;
+                    #This will make sure that it goes past the wall
+                    sleep(TURN_WAIT)
+                    print("[Main]Moved out of turn")
+                    recentlyTurned = False
             else:
-                print("CANNOT TURN OR GO FORWARD, TURNING RIGHT")
+                calibrated = False
+                print("[Main] Right")
                 stop()
                 
                 sleep(TURN_WAIT)
                 turn(-(MAZE_DIR))
                 recentlyTurned = True
-                forward()
 
 #Runs the code if this python .py file is not imported
 #This is because we may want to test the functions individually
