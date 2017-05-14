@@ -113,9 +113,20 @@ def refresh_val_thread():
     global usF_value
     global gs_value
     while True:
-        usT_value = usT.value()
-        usF_value = usF.value()
-        gs_value = gs.value()
+        try:
+            usT_value = usT.value()
+        except ValueError:
+            print('[Sensor-Refresh] Left Ultrasonic Refresh Failed')
+        
+        try:
+            usF_value = usF.value()
+        except ValueError:
+            print('[Sensor-Refresh] Front Ultrasonic Refresh Failed')
+        
+        try:
+            gs_value = gs.value()
+        except ValueError:
+            print('[Sensor-Refresh] Gyroscope Refresh Failed')
         
         sleep(.05)
 
@@ -164,10 +175,14 @@ def colourDetect():
         #cs_intensity = cs.reflected_light_intensity
         
         cs.mode = 'RGB-RAW'
+        try:
+            cs_green = cs.green
+            cs_blue = cs.blue
+            cs_red = cs.red
+        except ValueError:
+            print('[Colour-Sensor-Refresh] Colour Sensor Refresh Failed')
+        
         sleep(0.1)
-        cs_green = cs.green
-        cs_blue = cs.blue
-        cs_red = cs.red
         
         #hasGB = cs_green > 8 or cs_blue > 8
         
