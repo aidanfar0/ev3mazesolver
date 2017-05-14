@@ -18,11 +18,13 @@ DIST_CORRECT_THRESHOLD = 3
 #How many degrees the robot must turn in order to correct the turn
 ANGLE_CORRECT_THRESHOLD = 3
 #How many seconds to check for angle correction
-ANGLE_CORRECT_INTERVAL = 0.1
+ANGLE_CORRECT_INTERVAL = 0.05
 #Interval of time for the turn code to check if it's turned
 TURN_CHECK_INTERVAL = 0.05
 #interval to check if the can is near
 CAN_DIST_CHECK_INTERVAL = 0.05
+
+SENSOR_INTERVAL = 0.05
 
 #How much red the sensor needs to detect the can
 COLOUR_THRESHOLD = 7
@@ -128,7 +130,7 @@ def refresh_val_thread():
         except ValueError:
             print('[Sensor-Refresh] Gyroscope Refresh Failed')
         
-        sleep(.05)
+        sleep(SENSOR_INTERVAL)
 
 
 usT_value = usT.value()
@@ -152,7 +154,8 @@ def canTurn():
         return False
     else:
         #TEMP: print("Current SIDE Wall: %d" % usT_value)
-        if usT_value > US_WALL_DIST:
+        if usT_value > US_WALL_DIST and not (usT_value == 255):
+            print("[CanTurn:~156]: %d > %d" % (usT_value, US_WALL_DIST))
             return True
         else:
             return False
@@ -190,7 +193,7 @@ def colourDetect():
         
         #print("I: %d R: %d G: %d B: %d" % (cs_intensity, cs_red, cs_green, cs_blue))
         
-        if cs_red > cs_blue:
+        if cs_red > cs_blue and cs_red > 2:
             #print("RED")
             if not cs_is_red:
                 print("[ColourDetect] Red: R: %d G: %d B: %d" % (cs_red, cs_green, cs_blue))
@@ -204,6 +207,13 @@ def colourDetect():
                     cs_is_red = False
                     print("[ColourDetect] Other: R: %d G: %d B: %d" % (cs_red, cs_green, cs_blue))
 
+def canCheck():
+    while True:
+        if foundCan():
+            print("[canCheck] Found Target")
+            Sound.beep()
+            Sound.speak("Target Found")
+            getCan()
 
 def getCan():
     movingToCan = True
@@ -343,8 +353,15 @@ def turnTo(target):
     difference = angleRev(angle - target)
     print("Target: %d" % target)
     
-    while abs(difference) > 0:
+    while abs(difference) > 0 and not movingToCan: #Allows interruption by movingToCan variable
         angle = gs_value
+            #if foundCan():
+            #    print("[Main] Found Target (1st Time)")
+            #    if hasntFoundCan:
+            #        hasntFoundCan = False
+            #        Sound.beep()
+            #       Sound.speak("Target Found")
+            #   getCan()
         difference = angleRev(angle - target)
         #print("[TURN] Difference: %d" % difference)
         if difference > 0:
@@ -363,6 +380,11 @@ def turnTo(target):
         leftMotor.run_direct( duty_cycle_sp=(TURN_SPEED - MIN_TURN_POWER) * -difference / 90 + MIN_TURN_POWER * -dir)
         
         sleep(TURN_CHECK_INTERVAL)
+    
+    if movingToCan:
+        print("[turnTo]Turn interrupted by finding object")
+        return
+    
     stop()
     
     sleep(TURN_CHECK_INTERVAL*20)
@@ -392,9 +414,10 @@ class OffsetCheckUS(threading.Thread):
     #Checking for any change in direction
     def run(self):
         global recentlyTurned
+        echoConstantSpeed = True
         while not self.interrupt:
             #print("isForward: %s, foundWall: %s" % ("True" if isForward else "False", "True" if self.foundWall else "False"))
-            if not isForward: #isTurning:
+            if not isForward and not movingToCan: #isTurning:
                 #print("Waiting to go forward")
                 #Wait until not turning anymore
                 sleep(TURN_CHECK_INTERVAL)
@@ -403,14 +426,18 @@ class OffsetCheckUS(threading.Thread):
                 #initialDist = usT_value
                 leftMotorTrim2 = 0
                 rightMotorTrim2 = 0
+                echoConstantSpeed = True
             elif recentlyTurned or noTrim:
                 #Constant speed, because we don't know the trim
-                print("[Forward]Constant speed")
+                if echoConstantSpeed:
+                    print("[Forward]Constant speed")
+                echoConstantSpeed = False
                 
                 rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
                 leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
                 sleep(ANGLE_CORRECT_INTERVAL)
             elif not self.foundWall:
+                echoConstantSpeed = True
                 #Check if the wall is found
                 if usT_value < US_WALL_DIST:
                     self.foundWall = True
@@ -421,6 +448,7 @@ class OffsetCheckUS(threading.Thread):
                     sleep(ANGLE_CORRECT_INTERVAL)
                 
             elif self.foundWall:
+                echoConstantSpeed = True
                 #Use ultrasonic sensor to correct the trim of the wheels
                 dist = usT_value
                 #difference: >0 when leaning right, and <0 when leaning left
@@ -435,11 +463,11 @@ class OffsetCheckUS(threading.Thread):
                 leftMotorTrim2 = 0
                 if difference > DIST_CORRECT_THRESHOLD:
                     #Turn it left by reducing right motor:
-                    rightMotorTrim2 = difference
+                    rightMotorTrim2 = difference / 3
                     #print("TRIM: LEFT: %d" % difference)
                 if difference < -DIST_CORRECT_THRESHOLD:
                     #Turn it right by reducing left motor:
-                    leftMotorTrim2 = -difference
+                    leftMotorTrim2 = -difference / 3
                     #print("TRIM: RIGHT %d" % difference)
                 
                 rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - leftMotorTrim2)
@@ -455,6 +483,7 @@ class OffsetCheckUS(threading.Thread):
 #Runs the functions that get sensor values
 offset_check_thread = None
 refresh_thread = None
+colour_thread = None
 can_thread = None
 
 def startThreads():
@@ -464,9 +493,11 @@ def startThreads():
     global refresh_thread
     refresh_thread = threading.Thread(target = refresh_val_thread)
     refresh_thread.start()
+    global colour_thread
+    colour_thread = threading.Thread(target=colourDetect)
+    colour_thread.start()
     global can_thread
-    can_thread = threading.Thread(target=colourDetect)
-    can_thread.start()
+    can_thread = threading.Thread(target=canCheck)
 
 def mainFunc():
     global DIST_CORRECT_TARGET
@@ -489,38 +520,58 @@ def mainFunc():
     #Main thread
     while True:
         if movingToCan:
-            isForward = False
             sleep(0.5)
         else:
             #if (usT_value < US_WALL_DIST) and (recentlyTurned):
             #    recentlyTurned = False
             #    print("[Main] Found wall again after turn")
             
-            if foundCan():
-                print("[Main] Found Target (1st Time)")
-                if hasntFoundCan:
-                    hasntFoundCan = False
-                    Sound.beep()
-                    Sound.speak("Target Found")
-                getCan()
-            elif (not recentlyTurned) and canTurn() and (consecutiveLefts < 5):
-                calibrated = False
-                print("[Main] Left")
+            #if foundCan():
+            #    print("[Main] Found Target (1st Time)")
+            #    if hasntFoundCan:
+            #        hasntFoundCan = False
+            #        Sound.beep()
+            #       Sound.speak("Target Found")
+            #   getCan()
+            if (not recentlyTurned) and canTurn() and (consecutiveLefts < 5):
                 
                 #Go into the middle of the intersection
                 recentlyTurned = True
-                sleep(TURN_IN_WAIT)
+                   
+                #sleep(TURN_IN_WAIT)
                 
-                consecutiveLefts += 1
+                #Waits until TURN_IN_WAIT has completed:
+                #Does this while measuring the sensor every
+                #time the sensor is updated
+                #So that we don't get a single outlier that causes a turn
+                falses = 0
+                trues = 0
+                for i in range(0, int(TURN_IN_WAIT/SENSOR_INTERVAL)):
+                    if not canTurn():
+                        falses += 1
+                    else:
+                        trues += 1
+                    sleep(SENSOR_INTERVAL)
                 
-                #Stop, and turn
-                isForward = False
-                turn(MAZE_DIR)
-                
-                #Will go out of the intersection (unless forward is blocked) VV
-                recentlyTurned = True
+                if not falses >= trues: #False positive detected
+                    print("[Main] False left")
+                    recentlyTurned = False
+                    continue
+                else:
+                    calibrated = False #Calibrates next time it goes forward
+                    
+                    print("[Main] Left")
+                    consecutiveLefts += 1
+                    
+                    #Stop, and turn
+                    isForward = False
+                    turn(MAZE_DIR)
+                    
+                    #Will go out of the intersection (unless forward is blocked) VV
+                    recentlyTurned = True
             elif canGoForward():
-                print("[Main] Forward")
+                if not isForward:
+                    print("[Main] Forward")
                 forward()
                 if not calibrated:
                     calibrated = True
