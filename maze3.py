@@ -134,8 +134,8 @@ usF_queue_last = 0
 gs_queue_last = 0
 
 #Maximum range counted for a sensor reading to be a non-outlier
-usT_MAX_DIFF = 10
-usF_MAX_DIFF = 50
+usT_MAX_DIFF = 30
+usF_MAX_DIFF = 70
 gs_MAX_DIFF = 10
 
 def refresh_val_thread():
@@ -157,9 +157,11 @@ def refresh_val_thread():
     
     while True:
         try:
+            last_val = usT_value
             usT_value = usT.value()
             
-            if usT_queue_len == 0 or inQueueRange(usT_queue, usT_value, usT_MAX_DIFF):
+            #No queue yet, or not outlier, or two outliers in a row:
+            if usT_queue_len == 0 or inQueueRange(usT_queue, usT_value, usT_MAX_DIFF) or (usT_value < last_val + usT_MAX_DIFF and usT_value > last_val - usT_MAX_DIFF):
                 if usT_queue_len == SENSOR_QUEUE_SIZE:
                     usT_queue.get() #Remove last element
                 else:
@@ -167,14 +169,15 @@ def refresh_val_thread():
                 usT_queue.put(usT_value)
                 usT_queue_last = usT_value
             else:
-                print('[Sensor-Refresh] Outlier Side Ultrasonic Value: %d' % usT_value)
+                print('[Sensor-Refresh] Outlier Side Ultrasonic Value: %d; Normal: %s' % (usT_value, list(usT_queue.queue)))
             
         except ValueError:
             print('[Sensor-Refresh] Left Ultrasonic Refresh Failed')
         
         try:
+            last_val = usF_value
             usF_value = usF.value()
-            if usF_queue_len == 0 or inQueueRange(usF_queue, usF_value, usF_MAX_DIFF):
+            if usF_queue_len == 0 or inQueueRange(usF_queue, usF_value, usF_MAX_DIFF) or (usF_value < last_val + usF_MAX_DIFF and usF_value > last_val - usF_MAX_DIFF):
                 if usF_queue_len == SENSOR_QUEUE_SIZE:
                     usF_queue.get()
                 else:
@@ -182,13 +185,14 @@ def refresh_val_thread():
                 usF_queue.put(usF_value)
                 usF_queue_last = usF_value
             else:
-                print('[Sensor-Refresh] Outlier Front Ultrasonic Value: %d' % usF_value)
+                print('[Sensor-Refresh] Outlier Front Ultrasonic Value: %d; Normal: %s' % (usF_value, list(usF_queue.queue)))
         except ValueError:
             print('[Sensor-Refresh] Front Ultrasonic Refresh Failed')
         
         try:
+            last_val = gs_value
             gs_value = gs.value()
-            if gs_queue_len == 0 or inQueueRange(gs_queue, gs_value, gs_MAX_DIFF):
+            if gs_queue_len == 0 or inQueueRange(gs_queue, gs_value, gs_MAX_DIFF) or (gs_value < last_val + gs_MAX_DIFF and gs_value > last_val - gs_MAX_DIFF):
                 if gs_queue_len == SENSOR_QUEUE_SIZE:
                     gs_queue.get()
                 else:
@@ -196,7 +200,7 @@ def refresh_val_thread():
                 gs_queue.put(gs_value)
                 gs_queue_last = gs_value
             else:
-                print('[Sensor-Refresh] Outlier Gyro Value: %d' % gs_value)
+                print('[Sensor-Refresh] Outlier Gyro Value: %d; Normal: %s' % (gs_value, list(gs_queue.queue)))
         except ValueError:
             print('[Sensor-Refresh] Gyroscope Refresh Failed')
         
@@ -399,10 +403,6 @@ def forward():
 def turn(dir):
     if(dir == 0):
         return
-    elif dir>0:
-        Sound.speak("Turning right")
-    else:
-        Sound.speak("Turning left")
     
     
     isTurning = True
@@ -495,7 +495,7 @@ class OffsetCheckUS(threading.Thread):
     #initialDist = 0
     foundWall = recentlyTurned
     gs_start = 181
-    previous_us = usT_value
+    previous_us = usT_queue_last
     
     def __init__(self):
         threading.Thread.__init__(self)
@@ -523,7 +523,7 @@ class OffsetCheckUS(threading.Thread):
                 leftMotorTrim2 = 0
                 rightMotorTrim2 = 0
                 echoConstantSpeed = True
-                self.gs_start = angleRev(gs_value)
+                self.gs_start = angleRev(gs_queue_last)
             elif recentlyTurned or noTrim:
                 #Constant speed, because we don't know the trim
                 if echoConstantSpeed:
@@ -533,11 +533,11 @@ class OffsetCheckUS(threading.Thread):
                 rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
                 leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
                 sleep(ANGLE_CORRECT_INTERVAL)
-                self.gs_start = angleRev(gs_value)
+                self.gs_start = angleRev(gs_queue_last)
             elif not self.foundWall:
                 echoConstantSpeed = True
                 #Check if the wall is found
-                if usT_value < US_WALL_DIST:
+                if usT_queue_last < US_WALL_DIST:
                     self.foundWall = True
                     #initialDist = usT_value
                     print("[Forward]Found the wall again")
@@ -545,21 +545,21 @@ class OffsetCheckUS(threading.Thread):
                     self.foundWall = False
                     sleep(ANGLE_CORRECT_INTERVAL)
                 
-                self.gs_start = angleRev(gs_value)
+                self.gs_start = angleRev(gs_queue_last)
             elif self.foundWall:
                 echoConstantSpeed = True
                 #Use ultrasonic sensor to correct the trim of the wheels
-                dist = usT_value
+                dist = usT_queue_last
                 #difference: >0 when leaning right, and <0 when leaning left
                 us_difference = US_T_DIR * (dist - DIST_CORRECT_TARGET)#initialDist)
                 if us_difference > 200:
                     #Very likley that the robot has come too close to the wall for the sensors to work
                     us_difference = US_T_DIR * (self.previous_us - DIST_CORRECT_TARGET)
                 else:
-                    self.previous_us = usT_value
+                    self.previous_us = usT_queue_last
                 
                 if self.gs_start > 180:
-                    self.gs_start = gs_value
+                    self.gs_start = gs_queue_last
                     print("gs_start value %d" % self.gs_start)
                 gs_difference = angleRev(gs_value - self.gs_start)
                 
@@ -675,8 +675,9 @@ def mainFunc():
                     continue
                 else:
                     calibrated = False #Calibrates next time it goes forward
-                    
                     print("[Main] Left")
+                    Sound.speak("left")
+                    
                     consecutiveLefts += 1
                     
                     #Stop, and turn
@@ -704,11 +705,13 @@ def mainFunc():
             else:
                 calibrated = False
                 print("[Main] Right")
+                Sound.speak("right")
                 
                 #Right turns are already at the middle of the intersection
                 #By the time it is detected that it can't go forward
-                recentlyTurned = True
+                #Therefore, no need for sleep
                 #sleep(TURN_IN_WAIT)
+                recentlyTurned = True
                 
                 consecutiveLefts = 0
                 
