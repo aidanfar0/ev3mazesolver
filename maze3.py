@@ -2,6 +2,7 @@
 from ev3dev.ev3 import *
 from time import sleep
 import sys, os, threading
+from queue import Queue
 from inspect import currentframe, getframeinfo
 #sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -112,28 +113,104 @@ cs_is_red = False
 #When we have yet to detect the ultrasonic on the side
 recentlyTurned = False
 
+SENSOR_QUEUE_SIZE = 3
+
+#Queues of the last SENSOR_QUEUE_SIZE values from the sensor
+usT_queue = Queue()
+usF_queue = Queue()
+gs_queue  = Queue()
+
+#Current amount of items in the sensor value queue
+usT_queue_len = 0
+usF_queue_len = 0
+gs_queue_len = 0
+
+#These are the useful parts:
+#The last values added to the array; which means
+#they are not outliers (vs sensor_value) AND they are more
+#up-to-date than the average of the queue
+usT_queue_last = 0
+usF_queue_last = 0
+gs_queue_last = 0
+
+#Maximum range counted for a sensor reading to be a non-outlier
+usT_MAX_DIFF = 10
+usF_MAX_DIFF = 50
+gs_MAX_DIFF = 10
 
 def refresh_val_thread():
     global usT_value
     global usF_value
     global gs_value
+    
+    global usT_queue
+    global usF_queue
+    global gs_queue
+    
+    global usT_queue_len
+    global usF_queue_len
+    global gs_queue_len
+    
+    global usT_queue_last
+    global usF_queue_last
+    global gs_queue_last
+    
     while True:
         try:
             usT_value = usT.value()
+            
+            if usT_queue_len == 0 or inQueueRange(usT_queue, usT_value, usT_MAX_DIFF):
+                if usT_queue_len == SENSOR_QUEUE_SIZE:
+                    usT_queue.get() #Remove last element
+                else:
+                    usT_queue_len += 1 #Don't remove; net Addition of element
+                usT_queue.put(usT_value)
+                usT_queue_last = usT_value
+            else:
+                print('[Sensor-Refresh] Outlier Side Ultrasonic Value: %d' % usT_value)
+            
         except ValueError:
             print('[Sensor-Refresh] Left Ultrasonic Refresh Failed')
         
         try:
             usF_value = usF.value()
+            if usF_queue_len == 0 or inQueueRange(usF_queue, usF_value, usF_MAX_DIFF):
+                if usF_queue_len == SENSOR_QUEUE_SIZE:
+                    usF_queue.get()
+                else:
+                    usF_queue_len += 1
+                usF_queue.put(usF_value)
+                usF_queue_last = usF_value
+            else:
+                print('[Sensor-Refresh] Outlier Front Ultrasonic Value: %d' % usF_value)
         except ValueError:
             print('[Sensor-Refresh] Front Ultrasonic Refresh Failed')
         
         try:
             gs_value = gs.value()
+            if gs_queue_len == 0 or inQueueRange(gs_queue, gs_value, gs_MAX_DIFF):
+                if gs_queue_len == SENSOR_QUEUE_SIZE:
+                    gs_queue.get()
+                else:
+                    gs_queue_len += 1
+                gs_queue.put(gs_value)
+                gs_queue_last = gs_value
+            else:
+                print('[Sensor-Refresh] Outlier Gyro Value: %d' % gs_value)
         except ValueError:
             print('[Sensor-Refresh] Gyroscope Refresh Failed')
         
         sleep(SENSOR_INTERVAL)
+
+#Determines if the value given is an outlier compared with the rest of the queue
+def inQueueRange(q, val, max_diff):
+    inRange = False
+    for elem in list(q.queue):
+        if val > elem-max_diff and val < elem+max_diff:
+            inRange = True
+            break
+    
+    return inRange
 
 
 usT_value = usT.value()
@@ -148,6 +225,7 @@ def calibrateGyro():
         gs_value = gs.value()
     except ValueError:
         print("[Calibrate-Gyro] Gyroscope Refresh Failed")
+        return
     
     while (not(gs_value == 0)):
         sleep(0.05)
@@ -155,6 +233,7 @@ def calibrateGyro():
             gs_value = gs.value()
         except ValueError:
             print("[Calibrate-Gyro] Gyroscope Refresh Failed")
+            return
 
 #Checks if there is a place to turn left
 def foundCan():
@@ -197,7 +276,8 @@ def colourDetect():
             cs_red = cs.red
         except ValueError:
             print('[Colour-Sensor-Refresh] Colour Sensor Refresh Failed')
-        
+            return
+            
         sleep(0.1)
         
         #hasGB = cs_green > 8 or cs_blue > 8
@@ -415,6 +495,7 @@ class OffsetCheckUS(threading.Thread):
     #initialDist = 0
     foundWall = recentlyTurned
     gs_start = 181
+    previous_us = usT_value
     
     def __init__(self):
         threading.Thread.__init__(self)
@@ -432,7 +513,7 @@ class OffsetCheckUS(threading.Thread):
         echoConstantSpeed = True
         while not self.interrupt:
             #print("isForward: %s, foundWall: %s" % ("True" if isForward else "False", "True" if self.foundWall else "False"))
-            if not isForward and not movingToCan: #isTurning:
+            if (not isForward) or movingToCan: #isTurning:
                 #print("Waiting to go forward")
                 #Wait until not turning anymore
                 sleep(TURN_CHECK_INTERVAL)
@@ -473,7 +554,9 @@ class OffsetCheckUS(threading.Thread):
                 us_difference = US_T_DIR * (dist - DIST_CORRECT_TARGET)#initialDist)
                 if us_difference > 200:
                     #Very likley that the robot has come too close to the wall for the sensors to work
-                    us_difference = 0
+                    us_difference = US_T_DIR * (self.previous_us - DIST_CORRECT_TARGET)
+                else:
+                    self.previous_us = usT_value
                 
                 if self.gs_start > 180:
                     self.gs_start = gs_value
@@ -630,6 +713,7 @@ def mainFunc():
                 consecutiveLefts = 0
                 
                 #Stop, and turn
+                isForward = False
                 turn(-(MAZE_DIR))
                 
                 #Will go out of the intersection (unless forward is blocked) ^^
