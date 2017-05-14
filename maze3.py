@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env python3
 from ev3dev.ev3 import *
 from time import sleep
 import sys, os, threading
@@ -19,6 +19,8 @@ DIST_CORRECT_TARGET=17
 DIST_CORRECT_THRESHOLD = 3
 #How many degrees the robot must turn in order to correct the turn
 ANGLE_CORRECT_THRESHOLD = 3
+#Maximum it should aim to turn to correct for angle
+ANGLE_MAX_CORRECT = 5
 #How many seconds to check for angle correction
 ANGLE_CORRECT_INTERVAL = 0.05
 
@@ -494,7 +496,7 @@ class OffsetCheckUS(threading.Thread):
     #After the ultrasonic has passed the wall, this is the distance it detects
     #initialDist = 0
     foundWall = recentlyTurned
-    gs_start = 181
+    gs_start = 361
     previous_us = usT_queue_last
     
     def __init__(self):
@@ -551,20 +553,35 @@ class OffsetCheckUS(threading.Thread):
                 #Use ultrasonic sensor to correct the trim of the wheels
                 dist = usT_queue_last
                 #difference: >0 when leaning right, and <0 when leaning left
-                us_difference = US_T_DIR * (dist - DIST_CORRECT_TARGET)#initialDist)
+                us_difference = US_T_DIR * -(dist - DIST_CORRECT_TARGET)#initialDist)
+                
+                if us_difference > 
+                
                 if us_difference > 200:
                     #Very likley that the robot has come too close to the wall for the sensors to work
-                    us_difference = US_T_DIR * (self.previous_us - DIST_CORRECT_TARGET)
+                    us_difference = US_T_DIR * -(self.previous_us - DIST_CORRECT_TARGET)
                 else:
                     self.previous_us = usT_queue_last
                 
-                if self.gs_start > 180:
+                #Limiter on angle difference:
+                if us_difference > 0:
+                    us_diff_const = ANGLE_MAX_CORRECT
+                elif us_difference < 0:
+                    us_diff_const = -ANGLE_MAX_CORRECT
+                else:
+                    us_diff_const = 0
+                
+                
+                if self.gs_start > 180: #First gyro value
                     self.gs_start = gs_queue_last
-                    print("gs_start value %d" % self.gs_start)
-                gs_difference = angleRev(gs_value - self.gs_start)
+                
+                gs_difference = angleRev(gs_queue_last - self.gs_start)
+                
+                if gs_difference > 30:
+                    self.gs_start = gs_queue_last
                 
                 #Tries to get the robot to turn by the ultrasonic's difference
-                difference = us_difference + (US_T_DIR * gs_difference)
+                difference = us_difference - (US_T_DIR * gs_difference)
                 
                 #print("[TRIM] Difference: %d" % difference)
                 #Reset trims
@@ -582,12 +599,28 @@ class OffsetCheckUS(threading.Thread):
                 leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 
-                rightMotor.run_direct(duty_cycle_sp=rightSpeed)
-                leftMotor.run_direct(duty_cycle_sp=leftSpeed)
+                rightMotor.run_direct(duty_cycle_sp=leftSpeed)
+                leftMotor.run_direct(duty_cycle_sp=rightSpeed)
                 
-                print("[Forward] Diff: GS: %d; US: %d Speed: L: %d; R: %d" % (gs_difference, us_difference, leftSpeed, rightSpeed))
+                if difference > 0:
+                    print("[Forward] ANGLE Too far right; turning left")
+                elif difference < 0:
+                    print("[Forward] ANGLE Too far left; turning right")
                 
-                sleep(ANGLE_CORRECT_INTERVAL)
+                print('[Forward] ANGLE Gyro:%d; Target: %d; Current: %d' % (gs_difference, us_difference, (US_T_DIR * gs_difference)))
+                
+                if us_difference > 0:
+                    print("[Forward] POSITION Too far right")
+                elif us_difference < 0:
+                    print("[Forward] POSITION Too far left")
+                
+                print('[Forward] POSITION Target: %d; Current: %d' % (DIST_CORRECT_TARGET, dist))
+                
+                
+                #print("[Forward] Diff: GS: %d; US: %d Speed: L: %d; R: %d" % (gs_difference, us_difference, leftSpeed, rightSpeed))
+                
+                #sleep(ANGLE_CORRECT_INTERVAL)
+                sleep(0.5)
         
     #Stop Thread
     def stop(self):
