@@ -531,12 +531,11 @@ class OffsetCheckUS(threading.Thread):
                 if firstConstantSpeed:
                     print("[Forward]Constant speed")
                     self.gs_start = gs_value
-                
-                #Target the first angle
-                firstConstantSpeed = False
+                    #Target the first angle
+                    firstConstantSpeed = False
                 
                 #Difference between where the gyro is now, and where it's aimed for
-                gs_difference = angleRev(gs_value - target_gs)
+                gs_difference = angleRev(gs_value - self.gs_start)
                 
                 rightMotorTrim2 = 0
                 leftMotorTrim2 = 0
@@ -548,7 +547,8 @@ class OffsetCheckUS(threading.Thread):
                     #Turn it right by reducing left motor:
                     leftMotorTrim2 = -(MIN_TURN_POWER + gs_difference)
                 
-                #print("Position %s; Angle %s;" % (("Too far left" if us_difference < ANGLE_CORRECT_THRESHOLD else ("Too far right" if us_difference > ANGLE_CORRECT_THRESHOLD else "Okay")),("Too far left" if gs_difference < 0 else ("Too far right" if gs_difference > 0 else "Okay"))))
+                rightMotorTrim2 = 1
+                leftMotorTrim2 = 0
                 
                 leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
@@ -577,11 +577,8 @@ class OffsetCheckUS(threading.Thread):
                     self.gs_start = gs_value
                     firstConstantSpeed = True
                 
-                #Target the first angle
-                firstConstantSpeed = False
-                
                 #Difference between where the gyro is now, and where it's aimed for
-                gs_difference = angleRev(gs_value - target_gs)
+                gs_difference = angleRev(gs_value - self.gs_start)
                 
                 rightMotorTrim2 = 0
                 leftMotorTrim2 = 0
@@ -593,7 +590,8 @@ class OffsetCheckUS(threading.Thread):
                     #Turn it right by reducing left motor:
                     leftMotorTrim2 = -(MIN_TURN_POWER + gs_difference)
                 
-                #print("Position %s; Angle %s;" % (("Too far left" if us_difference < ANGLE_CORRECT_THRESHOLD else ("Too far right" if us_difference > ANGLE_CORRECT_THRESHOLD else "Okay")),("Too far left" if gs_difference < 0 else ("Too far right" if gs_difference > 0 else "Okay"))))
+                rightMotorTrim2 = 1
+                leftMotorTrim2 = 0
                 
                 leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
