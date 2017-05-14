@@ -2,6 +2,7 @@
 from ev3dev.ev3 import *
 from time import sleep
 import sys, os, threading
+from inspect import currentframe, getframeinfo
 #sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 
@@ -19,6 +20,8 @@ DIST_CORRECT_THRESHOLD = 3
 ANGLE_CORRECT_THRESHOLD = 3
 #How many seconds to check for angle correction
 ANGLE_CORRECT_INTERVAL = 0.05
+
+ANGLE_CORRECT_MAX = 15
 #Interval of time for the turn code to check if it's turned
 TURN_CHECK_INTERVAL = 0.05
 #interval to check if the can is near
@@ -38,7 +41,7 @@ CAN_DIST_THRESHOLD = 100
 MIN_TURN_POWER = 14
 
 #How fast it goes forward
-FORWARD_SPEED = 45
+FORWARD_SPEED = 35
 
 #How fas the wheels turn on the spot
 TURN_SPEED = 25
@@ -59,7 +62,7 @@ assert US_T_DIR == MAZE_DIR
 
 #NEEDS CALIBRATION
 #Greater than distance from ultrasonic to wall
-US_WALL_DIST = 40
+US_WALL_DIST = 50
 FUS_WALL_DIST = 200
 
 #Connect motors
@@ -140,8 +143,18 @@ gs_value = gs.value()
 def calibrateGyro():
     gs.mode = 'GYRO-RATE'
     gs.mode = 'GYRO-ANG'
-    while (not(gs.value() == 0)):
-        pass
+    
+    try:
+        gs_value = gs.value()
+    except ValueError:
+        print("[Calibrate-Gyro] Gyroscope Refresh Failed")
+    
+    while (not(gs_value == 0)):
+        sleep(0.05)
+        try:
+            gs_value = gs.value()
+        except ValueError:
+            print("[Calibrate-Gyro] Gyroscope Refresh Failed")
 
 #Checks if there is a place to turn left
 def foundCan():
@@ -216,6 +229,7 @@ def canCheck():
             getCan()
 
 def getCan():
+    global movingToCan
     movingToCan = True
     rightMotor.run_direct(duty_cycle_sp=CAN_FORWARD_SPEED)
     leftMotor.run_direct(duty_cycle_sp=CAN_FORWARD_SPEED)
@@ -400,6 +414,7 @@ class OffsetCheckUS(threading.Thread):
     #After the ultrasonic has passed the wall, this is the distance it detects
     #initialDist = 0
     foundWall = recentlyTurned
+    gs_start = 181
     
     def __init__(self):
         threading.Thread.__init__(self)
@@ -427,6 +442,7 @@ class OffsetCheckUS(threading.Thread):
                 leftMotorTrim2 = 0
                 rightMotorTrim2 = 0
                 echoConstantSpeed = True
+                self.gs_start = angleRev(gs_value)
             elif recentlyTurned or noTrim:
                 #Constant speed, because we don't know the trim
                 if echoConstantSpeed:
@@ -436,6 +452,7 @@ class OffsetCheckUS(threading.Thread):
                 rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
                 leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED)
                 sleep(ANGLE_CORRECT_INTERVAL)
+                self.gs_start = angleRev(gs_value)
             elif not self.foundWall:
                 echoConstantSpeed = True
                 #Check if the wall is found
@@ -447,15 +464,24 @@ class OffsetCheckUS(threading.Thread):
                     self.foundWall = False
                     sleep(ANGLE_CORRECT_INTERVAL)
                 
+                self.gs_start = angleRev(gs_value)
             elif self.foundWall:
                 echoConstantSpeed = True
                 #Use ultrasonic sensor to correct the trim of the wheels
                 dist = usT_value
                 #difference: >0 when leaning right, and <0 when leaning left
-                difference = -1 * US_T_DIR * (dist - DIST_CORRECT_TARGET)#initialDist)
-                if difference > 200:
+                us_difference = US_T_DIR * (dist - DIST_CORRECT_TARGET)#initialDist)
+                if us_difference > 200:
                     #Very likley that the robot has come too close to the wall for the sensors to work
-                    difference = 0
+                    us_difference = 0
+                
+                if self.gs_start > 180:
+                    self.gs_start = gs_value
+                    print("gs_start value %d" % self.gs_start)
+                gs_difference = angleRev(gs_value - self.gs_start)
+                
+                #Tries to get the robot to turn by the ultrasonic's difference
+                difference = us_difference + (US_T_DIR * gs_difference)
                 
                 #print("[TRIM] Difference: %d" % difference)
                 #Reset trims
@@ -463,15 +489,21 @@ class OffsetCheckUS(threading.Thread):
                 leftMotorTrim2 = 0
                 if difference > DIST_CORRECT_THRESHOLD:
                     #Turn it left by reducing right motor:
-                    rightMotorTrim2 = difference / 3
+                    rightMotorTrim2 = difference
                     #print("TRIM: LEFT: %d" % difference)
                 if difference < -DIST_CORRECT_THRESHOLD:
                     #Turn it right by reducing left motor:
-                    leftMotorTrim2 = -difference / 3
+                    leftMotorTrim2 = -difference
                     #print("TRIM: RIGHT %d" % difference)
                 
-                rightMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - leftMotorTrim2)
-                leftMotor.run_direct(duty_cycle_sp=FORWARD_SPEED - rightMotorTrim2)
+                leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
+                rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
+                
+                rightMotor.run_direct(duty_cycle_sp=rightSpeed)
+                leftMotor.run_direct(duty_cycle_sp=leftSpeed)
+                
+                print("[Forward] Diff: GS: %d; US: %d Speed: L: %d; R: %d" % (gs_difference, us_difference, leftSpeed, rightSpeed))
+                
                 sleep(ANGLE_CORRECT_INTERVAL)
         
     #Stop Thread
@@ -498,6 +530,7 @@ def startThreads():
     colour_thread.start()
     global can_thread
     can_thread = threading.Thread(target=canCheck)
+    can_thread.start()
 
 def mainFunc():
     global DIST_CORRECT_TARGET
