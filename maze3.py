@@ -190,8 +190,10 @@ def colourDetect():
         
         #print("I: %d R: %d G: %d B: %d" % (cs_intensity, cs_red, cs_green, cs_blue))
         
-        if cs_red >= cs_blue/2:
+        if cs_red > cs_blue:
             #print("RED")
+            if not cs_is_red:
+                print("[ColourDetect] Red: R: %d G: %d B: %d" % (cs_red, cs_green, cs_blue))
             cs_is_red = True
             loops_since_red = 0
         else:
@@ -200,6 +202,7 @@ def colourDetect():
                 loops_since_red += 1
                 if loops_since_red >= COLOUR_THRESHOLD:
                     cs_is_red = False
+                    print("[ColourDetect] Other: R: %d G: %d B: %d" % (cs_red, cs_green, cs_blue))
 
 
 def getCan():
@@ -450,22 +453,38 @@ class OffsetCheckUS(threading.Thread):
         rightMotorTrim2 = 0
 
 #Runs the functions that get sensor values
-refresh_thread = threading.Thread(target = refresh_val_thread)
-refresh_thread.start()
+offset_check_thread = None
+refresh_thread = None
+can_thread = None
 
-offset_check_thread = OffsetCheckUS()
-offset_check_thread.start()
+def startThreads():
+    global offset_check_thread
+    offset_check_thread = OffsetCheckUS()
+    offset_check_thread.start()
+    global refresh_thread
+    refresh_thread = threading.Thread(target = refresh_val_thread)
+    refresh_thread.start()
+    global can_thread
+    can_thread = threading.Thread(target=colourDetect)
+    can_thread.start()
 
 def mainFunc():
     global DIST_CORRECT_TARGET
     DIST_CORRECT_TARGET = usT_value
     print("Distance to left: %d" % DIST_CORRECT_TARGET)
     
+    #Attempts to get us out of a loop by counting how 
+    #Many lefts we make, and ignoring any left turns after
+    #The 4 limit has been reached
+    consecutiveLefts = 0
+    
     hasntFoundCan = True
     global recentlyTurned
     recentlyTurned = False
     global isForward
     calibrated = False
+    
+    startThreads()
     
     #Main thread
     while True:
@@ -478,19 +497,21 @@ def mainFunc():
             #    print("[Main] Found wall again after turn")
             
             if foundCan():
-                print("[Main] Found Object (1st Time)")
+                print("[Main] Found Target (1st Time)")
                 if hasntFoundCan:
                     hasntFoundCan = False
                     Sound.beep()
-                    Sound.speak("Object Found")
+                    Sound.speak("Target Found")
                 getCan()
-            elif (not recentlyTurned) and canTurn():
+            elif (not recentlyTurned) and canTurn() and (consecutiveLefts < 5):
                 calibrated = False
                 print("[Main] Left")
                 
                 #Go into the middle of the intersection
                 recentlyTurned = True
                 sleep(TURN_IN_WAIT)
+                
+                consecutiveLefts += 1
                 
                 #Stop, and turn
                 isForward = False
@@ -521,6 +542,8 @@ def mainFunc():
                 #By the time it is detected that it can't go forward
                 recentlyTurned = True
                 #sleep(TURN_IN_WAIT)
+                
+                consecutiveLefts = 0
                 
                 #Stop, and turn
                 turn(-(MAZE_DIR))
