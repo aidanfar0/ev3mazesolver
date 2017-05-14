@@ -18,9 +18,9 @@ DIST_CORRECT_TARGET=17
 #How many centimeters the robot must be "off-center' in order to correct it
 DIST_CORRECT_THRESHOLD = 3
 #How many degrees the robot must turn in order to correct the turn
-ANGLE_CORRECT_THRESHOLD = 3
+ANGLE_CORRECT_THRESHOLD = 10
 #Maximum it should aim to turn to correct for angle
-ANGLE_MAX_CORRECT = 5
+ANGLE_MAX_CORRECT = 20
 #How many seconds to check for angle correction
 ANGLE_CORRECT_INTERVAL = 0.05
 
@@ -171,7 +171,7 @@ def refresh_val_thread():
                 usT_queue.put(usT_value)
                 usT_queue_last = usT_value
             else:
-                print('[Sensor-Refresh] Outlier Side Ultrasonic Value: %d; Normal: %s' % (usT_value, list(usT_queue.queue)))
+                pass#print('[Sensor-Refresh] Outlier Side Ultrasonic Value: %d; Normal: %s' % (usT_value, list(usT_queue.queue)))
             
         except ValueError:
             print('[Sensor-Refresh] Left Ultrasonic Refresh Failed')
@@ -187,7 +187,7 @@ def refresh_val_thread():
                 usF_queue.put(usF_value)
                 usF_queue_last = usF_value
             else:
-                print('[Sensor-Refresh] Outlier Front Ultrasonic Value: %d; Normal: %s' % (usF_value, list(usF_queue.queue)))
+                pass#print('[Sensor-Refresh] Outlier Front Ultrasonic Value: %d; Normal: %s' % (usF_value, list(usF_queue.queue)))
         except ValueError:
             print('[Sensor-Refresh] Front Ultrasonic Refresh Failed')
         
@@ -202,7 +202,7 @@ def refresh_val_thread():
                 gs_queue.put(gs_value)
                 gs_queue_last = gs_value
             else:
-                print('[Sensor-Refresh] Outlier Gyro Value: %d; Normal: %s' % (gs_value, list(gs_queue.queue)))
+                pass#print('[Sensor-Refresh] Outlier Gyro Value: %d; Normal: %s' % (gs_value, list(gs_queue.queue)))
         except ValueError:
             print('[Sensor-Refresh] Gyroscope Refresh Failed')
         
@@ -551,74 +551,50 @@ class OffsetCheckUS(threading.Thread):
             elif self.foundWall:
                 echoConstantSpeed = True
                 #Use ultrasonic sensor to correct the trim of the wheels
-                dist = usT_queue_last
                 #difference: >0 when leaning right, and <0 when leaning left
-                us_difference = US_T_DIR * -(dist - DIST_CORRECT_TARGET)#initialDist)
+                us_difference = US_T_DIR * -(usT_value - DIST_CORRECT_TARGET)#initialDist)
                 
-                if us_difference > 
+                print("Ultrasonic Target: %d, Current: %d, Diff: %d" % (DIST_CORRECT_TARGET, usT_value, us_difference))
                 
-                if us_difference > 200:
+                if usT_value > 150:
+                    continue
                     #Very likley that the robot has come too close to the wall for the sensors to work
-                    us_difference = US_T_DIR * -(self.previous_us - DIST_CORRECT_TARGET)
-                else:
-                    self.previous_us = usT_queue_last
                 
-                #Limiter on angle difference:
-                if us_difference > 0:
-                    us_diff_const = ANGLE_MAX_CORRECT
-                elif us_difference < 0:
-                    us_diff_const = -ANGLE_MAX_CORRECT
-                else:
-                    us_diff_const = 0
+                #target_gs_rel: Target angle relative to straight line
                 
+                if us_difference > ANGLE_CORRECT_THRESHOLD:
+                    target_gs_rel = ANGLE_MAX_CORRECT
+                elif us_difference < -ANGLE_CORRECT_THRESHOLD:
+                    target_gs_rel = -ANGLE_MAX_CORRECT
+                else:
+                    target_gs_rel = 0
                 
                 if self.gs_start > 180: #First gyro value
-                    self.gs_start = gs_queue_last
+                    self.gs_start = angleRev(gs_queue_last)
                 
-                gs_difference = angleRev(gs_queue_last - self.gs_start)
+                #Where to turn to
+                target_gs = angleRev(self.gs_start + target_gs_rel)
                 
-                if gs_difference > 30:
-                    self.gs_start = gs_queue_last
+                #Difference between where the gyro is now, and where it's aimed for
+                gs_difference = angleRev(gs_value - target_gs)
                 
-                #Tries to get the robot to turn by the ultrasonic's difference
-                difference = us_difference - (US_T_DIR * gs_difference)
-                
-                #print("[TRIM] Difference: %d" % difference)
-                #Reset trims
                 rightMotorTrim2 = 0
                 leftMotorTrim2 = 0
-                if difference > DIST_CORRECT_THRESHOLD:
+                
+                if gs_difference > 0:
                     #Turn it left by reducing right motor:
-                    rightMotorTrim2 = difference
-                    #print("TRIM: LEFT: %d" % difference)
-                if difference < -DIST_CORRECT_THRESHOLD:
+                    rightMotorTrim2 = MIN_TURN_POWER + gs_difference  
+                if gs_difference < -0:
                     #Turn it right by reducing left motor:
-                    leftMotorTrim2 = -difference
-                    #print("TRIM: RIGHT %d" % difference)
+                    leftMotorTrim2 = -(MIN_TURN_POWER + gs_difference)
+                
+                print("Position %s; Angle %s;" % (("Too far left" if us_difference < ANGLE_CORRECT_THRESHOLD else ("Too far right" if us_difference > ANGLE_CORRECT_THRESHOLD else "Okay")),("Too far left" if gs_difference < 0 else ("Too far right" if gs_difference > 0 else "Okay"))))
                 
                 leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 
                 rightMotor.run_direct(duty_cycle_sp=leftSpeed)
                 leftMotor.run_direct(duty_cycle_sp=rightSpeed)
-                
-                if difference > 0:
-                    print("[Forward] ANGLE Too far right; turning left")
-                elif difference < 0:
-                    print("[Forward] ANGLE Too far left; turning right")
-                
-                print('[Forward] ANGLE Gyro:%d; Target: %d; Current: %d' % (gs_difference, us_difference, (US_T_DIR * gs_difference)))
-                
-                if us_difference > 0:
-                    print("[Forward] POSITION Too far right")
-                elif us_difference < 0:
-                    print("[Forward] POSITION Too far left")
-                
-                print('[Forward] POSITION Target: %d; Current: %d' % (DIST_CORRECT_TARGET, dist))
-                
-                
-                #print("[Forward] Diff: GS: %d; US: %d Speed: L: %d; R: %d" % (gs_difference, us_difference, leftSpeed, rightSpeed))
-                
                 #sleep(ANGLE_CORRECT_INTERVAL)
                 sleep(0.5)
         
