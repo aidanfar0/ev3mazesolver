@@ -25,7 +25,7 @@ TURN_CHECK_INTERVAL = 0.05
 CAN_DIST_CHECK_INTERVAL = 0.05
 
 #How much red the sensor needs to detect the can
-COLOUR_THRESHOLD = 0
+COLOUR_THRESHOLD = 7
 colours = ['none', 'black', 'blue', 'green', 'yellow', 'red', 'white', 'brown' ]
 
 #how close to get to to claw the can
@@ -57,7 +57,7 @@ assert US_T_DIR == MAZE_DIR
 
 #NEEDS CALIBRATION
 #Greater than distance from ultrasonic to wall
-US_WALL_DIST = 30
+US_WALL_DIST = 40
 FUS_WALL_DIST = 200
 
 #Connect motors
@@ -101,6 +101,8 @@ global noTrim
 global recentlyTurned
 noTrim = False
 isForward = False
+loops_since_red = COLOUR_THRESHOLD
+cs_is_red = False
 
 #When we have yet to detect the ultrasonic on the side
 recentlyTurned = False
@@ -110,16 +112,10 @@ def refresh_val_thread():
     global usT_value
     global usF_value
     global gs_value
-    global cs_red
-    global cs_green
-    global cs_blue
     while True:
         usT_value = usT.value()
         usF_value = usF.value()
         gs_value = gs.value()
-        cs_red = cs.red
-        cs_green = cs.green
-        cs_blue = cs.blue
         
         sleep(.05)
 
@@ -127,9 +123,6 @@ def refresh_val_thread():
 usT_value = usT.value()
 usF_value = usF.value()
 gs_value = gs.value()
-cs_red = cs.red
-cs_green = cs.green
-cs_blue = cs.blue
 
 def calibrateGyro():
     gs.mode = 'GYRO-RATE'
@@ -139,7 +132,8 @@ def calibrateGyro():
 
 #Checks if there is a place to turn left
 def foundCan():
-    return (cs_red > cs_green + COLOUR_THRESHOLD) and (cs_red > cs_blue + COLOUR_THRESHOLD)
+    return cs_is_red
+    #return (cs_red > cs_green + COLOUR_THRESHOLD) and (cs_red > cs_blue + COLOUR_THRESHOLD)
     #return cs.color == 5 #red = 5
 
 def canTurn():
@@ -156,6 +150,42 @@ def canTurn():
 def canGoForward():
     #print("Current FRNT Wall: %d" % usF_value)
     return usF_value > FUS_WALL_DIST
+
+def colourDetect():
+    global cs_red
+    global cs_green
+    global cs_blue
+    global cs_intensity
+    global cs_is_red
+    global loops_since_red
+    while True:
+        #cs.mode = 'REF-RAW'
+        #sleep(0.5)
+        #cs_intensity = cs.reflected_light_intensity
+        
+        cs.mode = 'RGB-RAW'
+        sleep(0.1)
+        cs_green = cs.green
+        cs_blue = cs.blue
+        cs_red = cs.red
+        
+        #hasGB = cs_green > 8 or cs_blue > 8
+        
+        #hasR = cs_intensity > 8
+        
+        #print("I: %d R: %d G: %d B: %d" % (cs_intensity, cs_red, cs_green, cs_blue))
+        
+        if cs_red >= cs_blue/2:
+            #print("RED")
+            cs_is_red = True
+            loops_since_red = 0
+        else:
+            #Keeps the red active for 5 cycles
+            if cs_is_red:
+                loops_since_red += 1
+                if loops_since_red >= COLOUR_THRESHOLD:
+                    cs_is_red = False
+
 
 def getCan():
     movingToCan = True
@@ -472,9 +502,10 @@ def mainFunc():
                 calibrated = False
                 print("[Main] Right")
                 
-                #Go into the middle of the intersection
+                #Right turns are already at the middle of the intersection
+                #By the time it is detected that it can't go forward
                 recentlyTurned = True
-                sleep(TURN_IN_WAIT)
+                #sleep(TURN_IN_WAIT)
                 
                 #Stop, and turn
                 turn(-(MAZE_DIR))
