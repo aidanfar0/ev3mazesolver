@@ -4,11 +4,9 @@ from time import sleep
 import sys, os, threading
 #sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-"""Time to wait until turning (it will keep going forward)
-This should be the amount of time that the robot takes to
-Get from just detecting that the left side is open (ultrasonic)
-To getting to the midpoint of the walls"""
-TURN_WAIT = 1.1  #NEEDS CALIBRATION
+
+TURN_OUT_WAIT = 1.7  #NEEDS CALIBRATION
+TURN_IN_WAIT = 0.9
 
 #Amount of time to wait after turning to continue again
 TURN_STOP_WAIT = 2
@@ -27,14 +25,15 @@ TURN_CHECK_INTERVAL = 0.05
 CAN_DIST_CHECK_INTERVAL = 0.05
 
 #How much red the sensor needs to detect the can
-COLOUR_THRESHOLD = -1
+COLOUR_THRESHOLD = 0
+colours = ['none', 'black', 'blue', 'green', 'yellow', 'red', 'white', 'brown' ]
 
 #how close to get to to claw the can
 #This is so that it doesn't bump into the end of the maze
 CAN_DIST_THRESHOLD = 100
 
 #Minimum amount of power to the motors when turning and getting closer
-MIN_TURN_POWER = 10
+MIN_TURN_POWER = 14
 
 #How fast it goes forward
 FORWARD_SPEED = 45
@@ -155,7 +154,7 @@ def canTurn():
     #return (not recentlyTurned) and usT_value > US_WALL_DIST
 
 def canGoForward():
-    print("Current FRNT Wall: %d" % usF_value)
+    #print("Current FRNT Wall: %d" % usF_value)
     return usF_value > FUS_WALL_DIST
 
 def getCan():
@@ -173,17 +172,18 @@ def getCan():
     
     #Goes for the can until the maze wall is reached
     while(usF_value < CAN_DIST_THRESHOLD) and foundCan():
-        print("Moving towards can...")
+        print("[getCan]Moving towards can...")
     
     sleep(0.5)
     if not foundCan():
         #Recursivley gets the can until it actually gets it at the end
+        print("[getCan]Lost the can!")
         lostCan = True
         reFindCan()
         getCan()
         return
     
-    print("Moved to can, closing grabbers...")
+    print("[getCan]Moved to can, closing grabbers...")
     frontMotor.run_direct(duty_cycle_sp=-40)
     sleep(3)
     frontMotor.run_direct(duty_cycle_sp=-5)
@@ -193,13 +193,14 @@ def getCan():
 
 #moves on the spot until the can is found
 def reFindCan():
+    print("[reFindCan]Turning until can found again")
     dir = 1
     rightMotor.run_direct(duty_cycle_sp=CAN_TURN_SPEED * -dir)
     leftMotor.run_direct(duty_cycle_sp=CAN_TURN_SPEED * dir)
     #turn on the spot until found the can again
     while not foundCan():
         sleep(TURN_CHECK_INTERVAL)
-    print("Re-found the can")
+    print("[reFindCan]Found the can")
     stop()
     lostCan = False
 
@@ -327,7 +328,7 @@ def turnTo(target):
 #Uses the ultrasonic sensor to detect when it's heading off-course
 class OffsetCheckUS(threading.Thread):
     #After the ultrasonic has passed the wall, this is the distance it detects
-    initialDist = 0
+    #initialDist = 0
     foundWall = recentlyTurned
     
     def __init__(self):
@@ -335,7 +336,7 @@ class OffsetCheckUS(threading.Thread):
         self.interrupt = False
     
     def reset(self):
-        initialDist = usT_value
+        #initialDist = usT_value
         self.interrupt = False
         leftMotorTrim2 = 0
         rightMotorTrim2 = 0
@@ -351,7 +352,7 @@ class OffsetCheckUS(threading.Thread):
                 sleep(TURN_CHECK_INTERVAL)
                 #Set initial variables (for if it stopped turning)
                 self.foundWall = False
-                initialDist = usT_value
+                #initialDist = usT_value
                 leftMotorTrim2 = 0
                 rightMotorTrim2 = 0
             elif recentlyTurned or noTrim:
@@ -365,7 +366,7 @@ class OffsetCheckUS(threading.Thread):
                 #Check if the wall is found
                 if usT_value < US_WALL_DIST:
                     self.foundWall = True
-                    initialDist = usT_value
+                    #initialDist = usT_value
                     print("[Forward]Found the wall again")
                 else:
                     self.foundWall = False
@@ -427,26 +428,30 @@ def mainFunc():
             isForward = False
             sleep(0.5)
         else:
-            if (usT_value < US_WALL_DIST) and (recentlyTurned):
-                recentlyTurned = False
-                print("[Main]Found wall again")
+            #if (usT_value < US_WALL_DIST) and (recentlyTurned):
+            #    recentlyTurned = False
+            #    print("[Main] Found wall again after turn")
             
             if foundCan():
+                print("[Main] Found Object (1st Time)")
                 if hasntFoundCan:
                     hasntFoundCan = False
                     Sound.beep()
-                    Sound.speak("I found the object")
-                isForward = False
+                    Sound.speak("Object Found")
                 getCan()
-                print("[Main] Found Object")
             elif (not recentlyTurned) and canTurn():
                 calibrated = False
                 print("[Main] Left")
-                recentlyTurned = True
                 
-                sleep(TURN_WAIT)
+                #Go into the middle of the intersection
+                recentlyTurned = True
+                sleep(TURN_IN_WAIT)
+                
+                #Stop, and turn
                 isForward = False
                 turn(MAZE_DIR)
+                
+                #Will go out of the intersection (unless forward is blocked) VV
                 recentlyTurned = True
             elif canGoForward():
                 print("[Main] Forward")
@@ -454,19 +459,27 @@ def mainFunc():
                 if not calibrated:
                     calibrated = True
                     calibrateGyro()
+                
                 if recentlyTurned:
-                    #Currently, the robot is going forward after a turn;
-                    #This will make sure that it goes past the wall
-                    sleep(TURN_WAIT)
-                    print("[Main]Moved out of turn")
+                    #Currently, the robot is going out of a turn
+                    #This will make sure that it goes past the wall before
+                    #Any other detections or anything
+                    print("[Main] Moving out of turn...")
+                    sleep(TURN_OUT_WAIT)
+                    print("[Main] Moved out of turn")
                     recentlyTurned = False
             else:
                 calibrated = False
                 print("[Main] Right")
-                stop()
                 
-                sleep(TURN_WAIT)
+                #Go into the middle of the intersection
+                recentlyTurned = True
+                sleep(TURN_IN_WAIT)
+                
+                #Stop, and turn
                 turn(-(MAZE_DIR))
+                
+                #Will go out of the intersection (unless forward is blocked) ^^
                 recentlyTurned = True
 
 #Runs the code if this python .py file is not imported
