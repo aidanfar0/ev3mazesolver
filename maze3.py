@@ -40,6 +40,9 @@ colours = ['none', 'black', 'blue', 'green', 'yellow', 'red', 'white', 'brown' ]
 #This is so that it doesn't bump into the end of the maze
 CAN_DIST_THRESHOLD = 100
 
+#How much cs_red has to be to grab the can
+CAN_GRAB_THRESHOLD = 20
+
 #Minimum amount of power to the motors when turning and getting closer
 MIN_TURN_POWER = 14
 
@@ -101,6 +104,7 @@ isTurning = False
 #isCan = False #generally doing an operation with the can
 movingToCan = False #moving towards the can
 lostCan = False #when it found the can, but lost it (probably due to the robot not going straight to it)
+grabbedCan = False
 
 #Flags when moving forward
 global isForward
@@ -329,10 +333,13 @@ def getCan():
     #sleep(1.5)
     
     #Goes for the can until the maze wall is reached
-    while(usF_value < CAN_DIST_THRESHOLD) and foundCan():
+    #while(usF_value < CAN_DIST_THRESHOLD) and foundCan():
+    while (cs_red < CAN_GRAB_THRESHOLD) and foundCan():
         print("[getCan]Moving towards can...")
+        sleep(0.1)
     
-    sleep(0.5)
+    sleep(0.5) #Wait for sensor to stabilise
+    
     if not foundCan():
         #Recursivley gets the can until it actually gets it at the end
         print("[getCan]Lost the can!")
@@ -553,8 +560,8 @@ class OffsetCheckUS(threading.Thread):
                 leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 
-                rightMotor.run_direct(duty_cycle_sp=leftSpeed)
-                leftMotor.run_direct(duty_cycle_sp=rightSpeed)
+                rightMotor.run_direct(duty_cycle_sp=rightSpeed)
+                leftMotor.run_direct(duty_cycle_sp=leftSpeed)
                 sleep(ANGLE_CORRECT_INTERVAL)
                 
             elif not self.foundWall:
@@ -596,8 +603,8 @@ class OffsetCheckUS(threading.Thread):
                 leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 
-                rightMotor.run_direct(duty_cycle_sp=leftSpeed)
-                leftMotor.run_direct(duty_cycle_sp=rightSpeed)
+                rightMotor.run_direct(duty_cycle_sp=rightSpeed)
+                leftMotor.run_direct(duty_cycle_sp=leftSpeed)
                 sleep(ANGLE_CORRECT_INTERVAL)
         
     #Stop Thread
