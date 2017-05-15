@@ -53,7 +53,7 @@ FORWARD_SPEED = 35
 TURN_SPEED = 25
 
 #How fast to go forward when fond the can
-CAN_FORWARD_SPEED = 25
+CAN_FORWARD_SPEED = 17
 
 #How fast to turn when found the can
 CAN_TURN_SPEED = 10
@@ -114,6 +114,7 @@ global recentlyTurned
 noTrim = False
 isForward = False
 loops_since_red = COLOUR_THRESHOLD
+loops_as_red = 0
 cs_is_red = False
 
 #When we have yet to detect the ultrasonic on the side
@@ -274,6 +275,7 @@ def colourDetect():
     global cs_intensity
     global cs_is_red
     global loops_since_red
+    global loops_as_red
     while True:
         #cs.mode = 'REF-RAW'
         #sleep(0.5)
@@ -300,13 +302,18 @@ def colourDetect():
             #print("RED")
             if not cs_is_red:
                 print("[ColourDetect] Red: R: %d G: %d B: %d" % (cs_red, cs_green, cs_blue))
-            cs_is_red = True
+            #cs_is_red = True
             loops_since_red = 0
+            loops_as_red += 1
+            if loops_as_red >= COLOUR_THRESHOLD:
+                cs_is_red = True
         else:
+            #Red not detected
             #Keeps the red active for 5 cycles
             if cs_is_red:
                 loops_since_red += 1
                 if loops_since_red >= COLOUR_THRESHOLD:
+                    loops_as_red = 0
                     cs_is_red = False
                     print("[ColourDetect] Other: R: %d G: %d B: %d" % (cs_red, cs_green, cs_blue))
 
@@ -343,9 +350,10 @@ def getCan():
     if not foundCan():
         #Recursivley gets the can until it actually gets it at the end
         print("[getCan]Lost the can!")
-        lostCan = True
-        reFindCan()
-        getCan()
+        #lostCan = True
+        #reFindCan()
+        #getCan()foundCan()
+        movingToCan = False
         return
     
     print("[getCan]Moved to can, closing grabbers...")
