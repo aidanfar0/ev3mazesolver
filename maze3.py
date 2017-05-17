@@ -597,24 +597,24 @@ class OffsetCheckUS(threading.Thread):
                 #us_difference: <0 if the robot is too far right; >0 if the robot is too far left
                 us_difference = US_T_DIR * (usT_value -DIST_CORRECT_TARGET)
                 
-                if us_difference > 0:
-                    print("Robot too far left by (%d - %d) = %d" % (usT_value, DIST_CORRECT_TARGET, us_difference))
-                else:
-                    print("Robot too far right by (%d - %d) = %d" % (usT_value, DIST_CORRECT_TARGET, us_difference))
+                #if us_difference > 0:
+                #    print("[Forward]Robot too far left by (%d - %d) = %d" % (usT_value, DIST_CORRECT_TARGET, us_difference))
+                #else:
+                #    print("[Forward]Robot too far right by (%d - %d) = %d" % (usT_value, DIST_CORRECT_TARGET, us_difference))
                 
                 
                 #Where to aim the gyro at (Average of ultrasonic and starting gyro)
                 gs_target = ((gs_value + us_difference) + self.gs_start) / 2
                 
-                print("Current GS: %d, Target: %d, Start: %d" % (gs_value,gs_target,self.gs_start))
+                #print("[Forward]Current GS: %d, Target: %d, Start: %d" % (gs_value,gs_target,self.gs_start))
                 
                 #Difference between where the gyro is now, and where it's aimed for
                 gs_difference = angleRev(gs_value - gs_target)
                 
-                if gs_difference > 0:
-                    print("GS too far to the right")
-                else:
-                    print("GS too far to the left")
+                #if gs_difference > 0:
+                #    print("[Forward]GS too far to the right")
+                #else:
+                #    print("[Forward]GS too far to the left")
                 
                 rightMotorTrim2 = 0
                 leftMotorTrim2 = 0
