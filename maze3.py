@@ -33,7 +33,7 @@ CAN_DIST_CHECK_INTERVAL = 0.05
 SENSOR_INTERVAL = 0.05
 
 #How much red the sensor needs to detect the can
-COLOUR_THRESHOLD = 7
+COLOUR_THRESHOLD = 3
 colours = ['none', 'black', 'blue', 'green', 'yellow', 'red', 'white', 'brown' ]
 
 #how close to get to to claw the can
@@ -41,7 +41,7 @@ colours = ['none', 'black', 'blue', 'green', 'yellow', 'red', 'white', 'brown' ]
 CAN_DIST_THRESHOLD = 100
 
 #How much cs_red has to be to grab the can
-CAN_GRAB_THRESHOLD = 20
+CAN_GRAB_THRESHOLD = 13
 
 #Minimum amount of power to the motors when turning and getting closer
 MIN_TURN_POWER = 14
@@ -298,7 +298,7 @@ def colourDetect():
         
         #print("I: %d R: %d G: %d B: %d" % (cs_intensity, cs_red, cs_green, cs_blue))
         
-        if cs_red > cs_blue and cs_red > 2:
+        if cs_red > cs_blue*2/3 and cs_red > 2:
             #print("RED")
             if not cs_is_red:
                 print("[ColourDetect] Red: R: %d G: %d B: %d" % (cs_red, cs_green, cs_blue))
@@ -345,7 +345,7 @@ def getCan():
         print("[getCan]Moving towards can...")
         sleep(0.1)
     
-    sleep(0.5) #Wait for sensor to stabilise
+    #sleep(0.5) #Wait for sensor to stabilise
     
     if not foundCan():
         #Recursivley gets the can until it actually gets it at the end
@@ -355,6 +355,8 @@ def getCan():
         #getCan()foundCan()
         movingToCan = False
         return
+    
+    stop()
     
     print("[getCan]Moved to can, closing grabbers...")
     frontMotor.run_direct(duty_cycle_sp=-40)
@@ -472,7 +474,7 @@ def turnTo(target):
             #        hasntFoundCan = False
             #        Sound.beep()
             #       Sound.speak("Target Found")
-            #   getCan()
+            #   getCan()aidanfar0
         difference = angleRev(angle - target)
         #print("[TURN] Difference: %d" % difference)
         if difference > 0:
@@ -583,7 +585,7 @@ class OffsetCheckUS(threading.Thread):
                     self.foundWall = False
                     sleep(ANGLE_CORRECT_INTERVAL)
                 
-                self.gs_start = angleRev(gs_queue_last)
+                self.gs_start = gs_value
             elif self.foundWall:
                 if not firstConstantSpeed:
                     #Just came out of the constant speed part, so we need to reset 
@@ -592,21 +594,40 @@ class OffsetCheckUS(threading.Thread):
                     self.gs_start = gs_value
                     firstConstantSpeed = True
                 
+                #us_difference: <0 if the robot is too far right; >0 if the robot is too far left
+                us_difference = US_T_DIR * (usT_value -DIST_CORRECT_TARGET)
+                
+                if us_difference > 0:
+                    print("Robot too far left by (%d - %d) = %d" % (usT_value, DIST_CORRECT_TARGET, us_difference))
+                else:
+                    print("Robot too far right by (%d - %d) = %d" % (usT_value, DIST_CORRECT_TARGET, us_difference))
+                
+                
+                #Where to aim the gyro at (Average of ultrasonic and starting gyro)
+                gs_target = ((gs_value + us_difference) + self.gs_start) / 2
+                
+                print("Current GS: %d, Target: %d, Start: %d" % (gs_value,gs_target,self.gs_start))
+                
                 #Difference between where the gyro is now, and where it's aimed for
-                gs_difference = angleRev(gs_value - self.gs_start)
+                gs_difference = angleRev(gs_value - gs_target)
+                
+                if gs_difference > 0:
+                    print("GS too far to the right")
+                else:
+                    print("GS too far to the left")
                 
                 rightMotorTrim2 = 0
                 leftMotorTrim2 = 0
                 
                 if gs_difference > 0:
-                    #Turn it left by reducing right motor:
-                    rightMotorTrim2 = MIN_TURN_POWER + gs_difference  
-                if gs_difference < -0:
-                    #Turn it right by reducing left motor:
-                    leftMotorTrim2 = -(MIN_TURN_POWER + gs_difference)
+                    #Turn it left by reducing left motor:
+                    leftMotorTrim2 = MIN_TURN_POWER #+ gs_difference  
+                if gs_difference < 0:
+                    #Turn it right by reducing right motor:
+                    rightMotorTrim2 = MIN_TURN_POWER #- gs_difference
                 
-                rightMotorTrim2 = 1
-                leftMotorTrim2 = 0
+                #rightMotorTrim2 = 1
+                #leftMotorTrim2 = 0
                 
                 leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
                 rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
