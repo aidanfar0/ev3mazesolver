@@ -41,7 +41,7 @@ colours = ['none', 'black', 'blue', 'green', 'yellow', 'red', 'white', 'brown' ]
 CAN_DIST_THRESHOLD = 100
 
 #How much cs_red has to be to grab the can
-CAN_GRAB_THRESHOLD = 13
+CAN_GRAB_THRESHOLD = 50
 
 #Minimum amount of power to the motors when turning and getting closer
 MIN_TURN_POWER = 14
@@ -317,8 +317,9 @@ def colourDetect():
                     cs_is_red = False
                     print("[ColourDetect] Other: R: %d G: %d B: %d" % (cs_red, cs_green, cs_blue))
 
+#Run in the background to override everything else and check for the can
 def canCheck():
-    while True:
+    while not grabbedCan:
         if foundCan():
             print("[canCheck] Found Target")
             Sound.beep()
@@ -327,6 +328,7 @@ def canCheck():
 
 def getCan():
     global movingToCan
+    global grabbedCan
     movingToCan = True
     rightMotor.run_direct(duty_cycle_sp=CAN_FORWARD_SPEED)
     leftMotor.run_direct(duty_cycle_sp=CAN_FORWARD_SPEED)
@@ -364,6 +366,7 @@ def getCan():
     frontMotor.run_direct(duty_cycle_sp=-5)
     #frontMotor.stop(stop_action='brake')
     #frontMotor.stop()
+    grabbedCan = True
     movingToCan = False
 
 #moves on the spot until the can is found
@@ -630,7 +633,7 @@ refresh_thread = None
 colour_thread = None
 can_thread = None
 
-def startThreads():
+def startThreads(canDetect):
     global offset_check_thread
     offset_check_thread = OffsetCheckUS()
     offset_check_thread.start()
@@ -641,8 +644,9 @@ def startThreads():
     colour_thread = threading.Thread(target=colourDetect)
     colour_thread.start()
     global can_thread
-    can_thread = threading.Thread(target=canCheck)
-    can_thread.start()
+    if canDetect: 
+        can_thread = threading.Thread(target=canCheck)
+        can_thread.start()
 
 def mainFunc():
     global DIST_CORRECT_TARGET
@@ -755,5 +759,5 @@ def mainFunc():
 #File, but not have the main function run.
 if __name__ == '__main__':
     
-    startThreads()
+    startThreads(True)
     mainFunc()
