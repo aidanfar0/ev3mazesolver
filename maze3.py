@@ -565,7 +565,7 @@ class OffsetCheckUS(threading.Thread):
                 if usT_value < US_WALL_DIST:
                     self.foundWall = True
                     #initialDist = usT_value
-                    print("[Forward]Found the wall again")
+                    print("[Forward] Found the wall again")
                 else:
                     self.straight(False)
                 
@@ -577,7 +577,11 @@ class OffsetCheckUS(threading.Thread):
                     self.gs_start = gs_value
                     firstConstantSpeed = True
                 
-                self.straight(True)
+                if usT_value > US_WALL_DIST:
+                    self.foundWall = False
+                    print("[Forward] Lost the wall")
+                else:
+                    self.straight(True)
     
     def straight(self, use_us):
         if use_us:
@@ -655,8 +659,6 @@ def mainFunc():
     recentlyTurned = False
     global isForward
     calibrated = False
-    
-    startThreads()
     
     #Main thread
     while True:
@@ -752,4 +754,6 @@ def mainFunc():
 #Using the command-line python, and we can just import this
 #File, but not have the main function run.
 if __name__ == '__main__':
+    
+    startThreads()
     mainFunc()
