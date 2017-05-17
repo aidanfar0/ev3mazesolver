@@ -552,19 +552,23 @@ class OffsetCheckUS(threading.Thread):
                     firstConstantSpeed = False
                 
                 self.straight(False)
+                self.foundWall = False
                 
             elif not self.foundWall:
-                firstConstantSpeed = True
+                if not firstConstantSpeed:
+                    print("[Forward] Just came out of constant speed; Haven't found wall yet; Resetting gyro value to %d" % gs_value)
+                    self.gs_start = gs_value
+                    #Target the first angle
+                    firstConstantSpeed = True
+                
                 #Check if the wall is found
-                if usT_queue_last < US_WALL_DIST:
+                if usT_value < US_WALL_DIST:
                     self.foundWall = True
                     #initialDist = usT_value
                     print("[Forward]Found the wall again")
                 else:
-                    self.foundWall = False
-                    sleep(ANGLE_CORRECT_INTERVAL)
+                    self.straight(False)
                 
-                self.gs_start = gs_value
             elif self.foundWall:
                 if not firstConstantSpeed:
                     #Just came out of the constant speed part, so we need to reset 
