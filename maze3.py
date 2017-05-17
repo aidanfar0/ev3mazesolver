@@ -546,33 +546,12 @@ class OffsetCheckUS(threading.Thread):
             elif recentlyTurned or noTrim:
                 #Constant speed, because we don't know the trim
                 if firstConstantSpeed:
-                    print("[Forward]Constant speed")
+                    print("[Forward] Constant speed, resetting gyro value to %d" % gs_value)
                     self.gs_start = gs_value
                     #Target the first angle
                     firstConstantSpeed = False
                 
-                #Difference between where the gyro is now, and where it's aimed for
-                gs_difference = angleRev(gs_value - self.gs_start)
-                
-                rightMotorTrim2 = 0
-                leftMotorTrim2 = 0
-                
-                if gs_difference > 0:
-                    #Turn it left by reducing right motor:
-                    rightMotorTrim2 = MIN_TURN_POWER + gs_difference  
-                if gs_difference < -0:
-                    #Turn it right by reducing left motor:
-                    leftMotorTrim2 = -(MIN_TURN_POWER + gs_difference)
-                
-                rightMotorTrim2 = 1
-                leftMotorTrim2 = 0
-                
-                leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
-                rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
-                
-                rightMotor.run_direct(duty_cycle_sp=rightSpeed)
-                leftMotor.run_direct(duty_cycle_sp=leftSpeed)
-                sleep(ANGLE_CORRECT_INTERVAL)
+                self.straight(False)
                 
             elif not self.foundWall:
                 firstConstantSpeed = True
@@ -590,57 +569,52 @@ class OffsetCheckUS(threading.Thread):
                 if not firstConstantSpeed:
                     #Just came out of the constant speed part, so we need to reset 
                     #They gyro's first value
-                    print("[Forward] Just came out of constant speed")
+                    print("[Forward] Just came out of constant speed; Resetting gyro target to %d" % gs_value)
                     self.gs_start = gs_value
                     firstConstantSpeed = True
                 
-                #us_difference: <0 if the robot is too far right; >0 if the robot is too far left
-                us_difference = US_T_DIR * (usT_value -DIST_CORRECT_TARGET)
-                
-                #if us_difference > 0:
-                #    print("[Forward]Robot too far left by (%d - %d) = %d" % (usT_value, DIST_CORRECT_TARGET, us_difference))
-                #else:
-                #    print("[Forward]Robot too far right by (%d - %d) = %d" % (usT_value, DIST_CORRECT_TARGET, us_difference))
-                
-                
-                #Where to aim the gyro at (Average of ultrasonic and starting gyro)
-                gs_target = ((gs_value + us_difference) + self.gs_start) / 2
-                
-                #print("[Forward]Current GS: %d, Target: %d, Start: %d" % (gs_value,gs_target,self.gs_start))
-                
-                #Difference between where the gyro is now, and where it's aimed for
-                gs_difference = angleRev(gs_value - gs_target)
-                
-                #if gs_difference > 0:
-                #    print("[Forward]GS too far to the right")
-                #else:
-                #    print("[Forward]GS too far to the left")
-                
-                rightMotorTrim2 = 0
-                leftMotorTrim2 = 0
-                
-                if gs_difference > 0:
-                    #Turn it left by reducing left motor:
-                    leftMotorTrim2 = MIN_TURN_POWER #+ gs_difference  
-                if gs_difference < 0:
-                    #Turn it right by reducing right motor:
-                    rightMotorTrim2 = MIN_TURN_POWER #- gs_difference
-                
-                #rightMotorTrim2 = 1
-                #leftMotorTrim2 = 0
-                
-                leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
-                rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
-                
-                rightMotor.run_direct(duty_cycle_sp=rightSpeed)
-                leftMotor.run_direct(duty_cycle_sp=leftSpeed)
-                sleep(ANGLE_CORRECT_INTERVAL)
+                self.straight(True)
+    
+    def straight(self, use_us):
+        if use_us:
+            #us_difference: <0 if the robot is too far right; >0 if the robot is too far left
+            us_difference = US_T_DIR * (usT_value -DIST_CORRECT_TARGET)
+            
+            #Where to aim the gyro at (Average of ultrasonic and starting gyro)
+            gs_target = ((gs_value + us_difference) + self.gs_start) / 2
+        else:
+            gs_target = self.gs_start;
         
+        #Difference between where the gyro is now, and where it's aimed for
+        gs_difference = angleRev(gs_value - gs_target)
+        
+        rightMotorTrim2 = 0
+        leftMotorTrim2 = 0
+        
+        if gs_difference > 0:
+            #Turn it left by reducing left motor:
+            leftMotorTrim2 = MIN_TURN_POWER #+ gs_difference  
+        if gs_difference < 0:
+            #Turn it right by reducing right motor:
+            rightMotorTrim2 = MIN_TURN_POWER #- gs_difference
+        
+        #rightMotorTrim2 = 1
+        #leftMotorTrim2 = 0
+        
+        leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
+        rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
+        
+        rightMotor.run_direct(duty_cycle_sp=rightSpeed)
+        leftMotor.run_direct(duty_cycle_sp=leftSpeed)
+        sleep(ANGLE_CORRECT_INTERVAL)
+    
     #Stop Thread
     def stop(self):
         self.interrupt = True
         leftMotorTrim2 = 0
         rightMotorTrim2 = 0
+
+
 
 #Runs the functions that get sensor values
 offset_check_thread = None
