@@ -6,59 +6,85 @@ from queue import Queue
 from inspect import currentframe, getframeinfo
 #sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
+#DO NOT USE SENSOR VALUES DIRECTLY
+#Instead, use usT_value, gs_value, usF_value
+#Using it directly can call the .value() function too many times
+#Which crashes the program
 
-TURN_OUT_WAIT = 1.7  #NEEDS CALIBRATION
-TURN_IN_WAIT = 0.9
+#TO DEBUG:
+#python
+#from maze3 import *
+#startThreads(False) #for not trying to find the can
+#startThreads(True) #If you are trying to find the can
+#forward() to test the wall-following
+#turn(..) and turnTo(..) to test turning
+#mainFunc() to start the program (Needs startThreads(true) first)
 
-#Amount of time to wait after turning to continue again
-TURN_STOP_WAIT = 2
+#FORWARD/COURSE CORRECTION variables:
+#Amount of time to wait after turning (in general)
+#This is only useful if the gyro likes to stuff around
+TURN_STOP_WAIT = 0
 
-#Target to aim for to get the ultrasonic sensor on the side to get to when going straight forward
+#How far away from the wall the robot should keep (usT_value)
+#Currently, this is set to the left ultrasonics' when the program starts
 DIST_CORRECT_TARGET=17
-#How many centimeters the robot must be "off-center' in order to correct it
+#When the robot is 'off-center' (from DIST_CORRECT_TARGET) by this many units
+#Then it will attempt to correct itself.
 DIST_CORRECT_THRESHOLD = 3
-#How many degrees the robot must turn in order to correct the turn
-ANGLE_CORRECT_THRESHOLD = 10
-#Maximum it should aim to turn to correct for angle
-ANGLE_MAX_CORRECT = 10
-#How many seconds to check for angle correction
+#When going forward, the interval of time for the robot to attempt to do course correction
 ANGLE_CORRECT_INTERVAL = 0.05
-
+#Maximum amount of correction to apply to each wheel
 ANGLE_CORRECT_MAX = 15
-#Interval of time for the turn code to check if it's turned
-TURN_CHECK_INTERVAL = 0.05
-#interval to check if the can is near
-CAN_DIST_CHECK_INTERVAL = 0.05
-
-SENSOR_INTERVAL = 0.05
-
-#How much red the sensor needs to detect the can
-COLOUR_THRESHOLD = 3
-colours = ['none', 'black', 'blue', 'green', 'yellow', 'red', 'white', 'brown' ]
-
-#how close to get to to claw the can
-#This is so that it doesn't bump into the end of the maze
-CAN_DIST_THRESHOLD = 100
-
-#How much cs_red has to be to grab the can
-CAN_GRAB_THRESHOLD = 50
-
-#Minimum amount of power to the motors when turning and getting closer
-MIN_TURN_POWER = 14
-
 #How fast it goes forward
 FORWARD_SPEED = 35
 
-#How fas the wheels turn on the spot
+#TURNING/TIMING VARIABLES:
+#Timing variables for
+#After the robot detects that it can turn left, it will go forward for TURN_IN_WAIT seconds
+#before Actually turning left, so that it can get into the center of the intersection,
+#Aswell as it will go forward TURN_OUT_WAIT seconds after it's made the actual turn, so
+#That it doesn't detect a left turn and go back the way it came from
+TURN_OUT_WAIT = 1.7
+TURN_IN_WAIT = 0.9
+#Speed of wheels when turning
 TURN_SPEED = 25
+#When turning, the motors should run at a minimum of this much power
+#If the robot overshoots on turns, try turn this down so it gets more precision
+#If the robot doesn't complete the turn all the way, and needs a little help
+#(Pushin it manully a bit), then turn it up
+MIN_TURN_POWER = 14
+#When the robot is turning, the interval of time for it to 
+#change turn speed/check if it's turned yet
+TURN_CHECK_INTERVAL = 0.05
+#interval to check if the can is near
+CAN_DIST_CHECK_INTERVAL = 0.05
+#Interval to update sensor values at
+SENSOR_INTERVAL = 0.05
 
-#How fast to go forward when fond the can
+#COLOUR/CAN VARIABLES:
+#How many times the sensor has to detect a red colour for it to register
+COLOUR_THRESHOLD = 3
+#How sensitive it is to the red colour in front
+RED_SENSITIVITY = 3/2
+#Just colour names, not used but maybe for debugging?
+colours = ['none', 'black', 'blue', 'green', 'yellow', 'red', 'white', 'brown' ]
+#How much cs_red has to be to grab the can
+#This should be the value of cs_red when the can is in the claws
+CAN_GRAB_THRESHOLD = 50
+#How fast to go forward when it detected the red can
 CAN_FORWARD_SPEED = 17
-
-#How fast to turn when found the can
+#How fast to turn when trying to "Re-Find" the can
+#I.e. if the can is found, but then the red sensor is lost,
+#It will turn at this speed until it detects red again
+#
+#This is because maybe the robot is going forward and 
+#when it detects the can, it may be not straight forward,
+#So when it goes forward to the can, it may loose sight of it again.
+#To combat this, the robot turns on the spot until it finds the can again
 CAN_TURN_SPEED = 10
 
 #DON'T CHANGE THESE 2:
+#Because I haven't checked that the code works with them changed
 #Direction of the sideways ultrasonic sensor
 #Left = -1, Right = 1
 US_T_DIR = -1
@@ -66,12 +92,14 @@ US_T_DIR = -1
 MAZE_DIR = -1
 assert US_T_DIR == MAZE_DIR
 
-#NEEDS CALIBRATION
-#Greater than distance from ultrasonic to wall
+#Threshold that the ultrasonic sensor (on the side) has to be higher than
+#For it to count as a wall
 US_WALL_DIST = 50
+#Same but for front sensor. 
+#It's different because the sensors are physically different (NXT vs EV3 sensor)
 FUS_WALL_DIST = 200
 
-#Connect motors
+#Connect sensors/motors:
 rightMotor = LargeMotor(OUTPUT_D)
 leftMotor = LargeMotor(OUTPUT_C)
 
@@ -83,7 +111,7 @@ assert cs.connected
 #Forward ultrasonic sensor
 usF = UltrasonicSensor(INPUT_3)
 assert usF.connected
-#Side ultrasonic sensor
+#Side ultrasonic sensor ('T' for turn :P)
 usT = UltrasonicSensor(INPUT_4)
 assert usT.connected
 
@@ -91,35 +119,36 @@ gs = GyroSensor()
 assert gs.connected
 gs.mode = 'GYRO-ANG'
 
-#IMPORTANT: Whenever moving straight, when there is a chance that the robot can
-#Move slightly in one direction, use THIS as a turning direction,
-leftMotorTrim = 0
-rightMotorTrim = 0
-leftMotorTrim2 = 1
-rightMotorTrim2 = 0
-
+#Flags when the robot is turning (not when it's going into/out of a turn)
 isTurning = False
-#Flag when it's moving toward the center of the intersection
-
-#isCan = False #generally doing an operation with the can
-movingToCan = False #moving towards the can
-lostCan = False #when it found the can, but lost it (probably due to the robot not going straight to it)
-grabbedCan = False
-
-#Flags when moving forward
-global isForward
-global offset_check_thread
-global noTrim
+#When it IS moving out of/into a turn (i.e. centering into the intersection)
 global recentlyTurned
-noTrim = False
-isForward = False
-loops_since_red = COLOUR_THRESHOLD
-loops_as_red = 0
-cs_is_red = False
-
-#When we have yet to detect the ultrasonic on the side
 recentlyTurned = False
 
+movingToCan = False #moving towards the can
+grabbedCan = False #Can is in its claws
+
+#Variable used for inter-thread communication to tell it to go straight forward
+global isForward
+isForward = False
+#Thread for this whole forward/course correct stuff:
+global offset_check_thread
+#Turns off course-correct, (including using gyro)
+global noTrim
+noTrim = False
+
+#Flags if it found red colour (the can is in front of it)
+cs_is_red = False
+#When detecting red colour, it has to detect it This many loops in a row
+#For it to register as actually the can
+loops_as_red = 0
+#After it's actually found the can, it has to be NOT red for this many
+#loops in a row for it to count as lost the can
+loops_since_red = COLOUR_THRESHOLD
+
+#QUEUEING stuff is NOT USED (I tried to use it, it didn't do much)
+#Maybe use it to get average of last values?
+#This is the size of the queue for the last sensor values
 SENSOR_QUEUE_SIZE = 3
 
 #Queues of the last SENSOR_QUEUE_SIZE values from the sensor
@@ -141,10 +170,13 @@ usF_queue_last = 0
 gs_queue_last = 0
 
 #Maximum range counted for a sensor reading to be a non-outlier
+#I.e. if a sensor reading is different to all 3 previous sensor readings
+#By at least this much, then it will count as an outlier
 usT_MAX_DIFF = 30
 usF_MAX_DIFF = 70
 gs_MAX_DIFF = 10
 
+#This is the function for a thread that updates the sensor values
 def refresh_val_thread():
     global usT_value
     global usF_value
@@ -163,11 +195,14 @@ def refresh_val_thread():
     global gs_queue_last
     
     while True:
+        #Sometimes, the sensors still fail, so we need the try block to catch the exception and not crash the program
+        #The value calls usually work again afterwards
         try:
             last_val = usT_value
+             #If you want to remove the queue stuff, keep this only: usT_value = usT.value(), (for other sensors aswell)
             usT_value = usT.value()
             
-            #No queue yet, or not outlier, or two outliers in a row:
+            #No queue yet, or not outlier, or two outliers in a row (value actually did change then):
             if usT_queue_len == 0 or inQueueRange(usT_queue, usT_value, usT_MAX_DIFF) or (usT_value < last_val + usT_MAX_DIFF and usT_value > last_val - usT_MAX_DIFF):
                 if usT_queue_len == SENSOR_QUEUE_SIZE:
                     usT_queue.get() #Remove last element
@@ -223,7 +258,7 @@ def inQueueRange(q, val, max_diff):
     
     return inRange
 
-
+#Initializes the values
 usT_value = usT.value()
 usF_value = usF.value()
 gs_value = gs.value()
@@ -246,28 +281,28 @@ def calibrateGyro():
             print("[Calibrate-Gyro] Gyroscope Refresh Failed")
             return
 
-#Checks if there is a place to turn left
+#Checks if the can is infront
 def foundCan():
     return cs_is_red
-    #return (cs_red > cs_green + COLOUR_THRESHOLD) and (cs_red > cs_blue + COLOUR_THRESHOLD)
-    #return cs.color == 5 #red = 5
 
+#Checks if there is a place to turn left
 def canTurn():
     if recentlyTurned:
         return False
     else:
         #TEMP: print("Current SIDE Wall: %d" % usT_value)
         if usT_value > US_WALL_DIST and not (usT_value == 255):
-            print("[CanTurn:~156]: %d > %d" % (usT_value, US_WALL_DIST))
+            print("[CanTurn]: %d > %d" % (usT_value, US_WALL_DIST))
             return True
         else:
             return False
-    #return (not recentlyTurned) and usT_value > US_WALL_DIST
 
+#Checks if there is no wall in front. Duh.
 def canGoForward():
-    #print("Current FRNT Wall: %d" % usF_value)
     return usF_value > FUS_WALL_DIST
 
+#Separate function to detect if the can is in front.
+#This is quite difficult,
 def colourDetect():
     global cs_red
     global cs_green
@@ -277,11 +312,11 @@ def colourDetect():
     global loops_since_red
     global loops_as_red
     while True:
-        #cs.mode = 'REF-RAW'
-        #sleep(0.5)
-        #cs_intensity = cs.reflected_light_intensity
-        
+        #Probably dont need this
         cs.mode = 'RGB-RAW'
+        
+        #The sensor values may fail here aswell:
+        #This is similar to the gs,us refresher but for colour
         try:
             cs_green = cs.green
             cs_blue = cs.blue
@@ -292,17 +327,16 @@ def colourDetect():
             
         sleep(0.1)
         
-        #hasGB = cs_green > 8 or cs_blue > 8
+        #The sensor is quite insensitive to red unfortunatley 
+        #(Probably because the red LED doesn't light up very much when in colour mode,
+        #However, the red LED DOES light up when in 'REF-RAW' or 'Reflected intensity' mode)
         
-        #hasR = cs_intensity > 8
-        
-        #print("I: %d R: %d G: %d B: %d" % (cs_intensity, cs_red, cs_green, cs_blue))
-        
-        if cs_red > cs_blue*2/3 and cs_red > 2:
-            #print("RED")
+        #Therefore, we just need it to be bigger than blue (or green? green is lower than blue generally)
+        #And it has to actually be red
+        if cs_red > cs_blue*1/RED_SENSITIVITY and cs_red > 2:
             if not cs_is_red:
+                #Just changed from not red->red
                 print("[ColourDetect] Red: R: %d G: %d B: %d" % (cs_red, cs_green, cs_blue))
-            #cs_is_red = True
             loops_since_red = 0
             loops_as_red += 1
             if loops_as_red >= COLOUR_THRESHOLD:
@@ -315,6 +349,7 @@ def colourDetect():
                 if loops_since_red >= COLOUR_THRESHOLD:
                     loops_as_red = 0
                     cs_is_red = False
+                    #Just changed from red->not red
                     print("[ColourDetect] Other: R: %d G: %d B: %d" % (cs_red, cs_green, cs_blue))
 
 #Run in the background to override everything else and check for the can
@@ -326,6 +361,10 @@ def canCheck():
             Sound.speak("Target Found")
             getCan()
 
+#Once the can is detected as being in front, this makes it go forward and grab it
+#   Maybe we should use the forward() function without wall distance for this?
+#   to possibly get it on the same gyro path? but it's a small enough distance
+#   that the robot's turn doens't really matter that much
 def getCan():
     global movingToCan
     global grabbedCan
@@ -333,39 +372,28 @@ def getCan():
     rightMotor.run_direct(duty_cycle_sp=CAN_FORWARD_SPEED)
     leftMotor.run_direct(duty_cycle_sp=CAN_FORWARD_SPEED)
     
-    #offset_can_check = OffsetCanCheck()
-    #offset_can_check.start()
-    
-    #dist_can_check = CanDistCheck()
-    #dist_can_check.start()
-    
-    #sleep(1.5)
-    
-    #Goes for the can until the maze wall is reached
-    #while(usF_value < CAN_DIST_THRESHOLD) and foundCan():
+    #Goes for the can until the sensor finds it INSIDE the claws
     while (cs_red < CAN_GRAB_THRESHOLD) and foundCan():
         print("[getCan]Moving towards can...")
         sleep(0.1)
     
-    #sleep(0.5) #Wait for sensor to stabilise
-    
     if not foundCan():
         #Recursivley gets the can until it actually gets it at the end
         print("[getCan]Lost the can!")
-        #lostCan = True
         #reFindCan()
         #getCan()foundCan()
         movingToCan = False
         return
     
+    #Don't run over the can! D:
     stop()
     
     print("[getCan]Moved to can, closing grabbers...")
+    #Initial motion
     frontMotor.run_direct(duty_cycle_sp=-40)
     sleep(3)
+    #Applies constant pressure to make sure it's in there, This may not be needed
     frontMotor.run_direct(duty_cycle_sp=-5)
-    #frontMotor.stop(stop_action='brake')
-    #frontMotor.stop()
     grabbedCan = True
     movingToCan = False
 
@@ -380,10 +408,6 @@ def reFindCan():
         sleep(TURN_CHECK_INTERVAL)
     print("[reFindCan]Found the can")
     stop()
-    lostCan = False
-
-#checks if the can is not infront of the colour sensor
-#start the thread when starts moving to the can
 
 #This has been TESTED INDEPENDENTLY (i.e. in python console)
 #Convert angle to between 0 and 360
@@ -409,7 +433,8 @@ def angleRev(angle):
             return modded + 360
         else:
             return modded
-            
+
+#Generic stop function, stops the motors, and stops the forward thread from running
 def stop():
     global isForward
     isForward = False
@@ -418,80 +443,54 @@ def stop():
     leftMotor.stop()
     rightMotor.stop()
 
+#Tells the forward thread to go forward
 def forward():
     global isForward
     isForward = True
 
+#Turns in the given direction. 1 for right, -1 for left.
 def turn(dir):
     if(dir == 0):
         return
-    
     
     isTurning = True
     gs_start = gs_value
     target = gs_start + dir*90
     
-    #rightMotor.run_direct(duty_cycle_sp=TURN_SPEED * -dir)
-    #leftMotor.run_direct(duty_cycle_sp=TURN_SPEED * dir)
     print("Turning...")
-    #angleRev(gs_value () - target) Approaches 0
-    #Approaches from the right if turning left
-    #Approaches from the left if turning right
-    #As it turns into the direction
     
     turnTo(target)
-    
-    #sleep(1.3)
-    #print("ANGLE: %d" % angleRev(gs_value));
-    #print("TARGET: %d" % angleRev(target))
-    #print("DISTANCE: %d" % dir*-(angleRev(angleRev(gs_value) - angleRev(target))))
-    
-    #while dir*-(angleRev(angleRev(gs_value) - angleRev(target))) > 5 :
-    #    print("ANGLE: %d" % angleRev(gs_value));
-    #    print("TARGET: %d" % angleRev(target))
-    #    #print("DISTANCE: %d" % dir*-(angleRev(angleRev(gs_value) - angleRev(target))))
-    #    sleep(TURN_CHECK_INTERVAL * 10)
-    #    
-    #    if foundCan():
-    #        getCan()
-    #        print("FOUND CAN")
     
     print("Finished turn")
     
     stop()
-    sleep(TURN_STOP_WAIT)
     isTurning = False
 
 #Turn the robot until it reaches the target angle
 def turnTo(target):
     #>0 means robot is too far to the right, <0 too far to the left
-    angle = gs_value
-    difference = angleRev(angle - target)
+    difference = angleRev(gs_value - target)
     print("Target: %d" % target)
     
-    while abs(difference) > 0 and not movingToCan: #Allows interruption by movingToCan variable
-        angle = gs_value
-            #if foundCan():
-            #    print("[Main] Found Target (1st Time)")
-            #    if hasntFoundCan:
-            #        hasntFoundCan = False
-            #        Sound.beep()
-            #       Sound.speak("Target Found")
-            #   getCan()aidanfar0
-        difference = angleRev(angle - target)
+    #Allows interruption by movingToCan variable
+    #Might want to add some other interruptable variables to it, like
+    #A stop variable maybe?
+    while abs(difference) > 0 and not movingToCan:
+        difference = angleRev(gs_value - target)
         #print("[TURN] Difference: %d" % difference)
         if difference > 0:
             dir = 1
         else:
             dir = -1
         
-        #Caps the difference at 90
+        #Caps the difference at 90, because any more would be pointless to measure
+        #And it may make the motors run too fast.
         if abs(difference) > 90:
             difference = dir * 90
         
         #It slows down when it gets closer
-        #But it's always at least 15
-        
+        #But it's always at least MIN_TURN_POWER
+        #And when it's at the maximum difference (i.e. 90), then it's at TURN_SPEED speed
         rightMotor.run_direct(duty_cycle_sp=(TURN_SPEED - MIN_TURN_POWER) *  difference / 90 + MIN_TURN_POWER *  dir)
         leftMotor.run_direct( duty_cycle_sp=(TURN_SPEED - MIN_TURN_POWER) * -difference / 90 + MIN_TURN_POWER * -dir)
         
@@ -503,79 +502,70 @@ def turnTo(target):
     
     stop()
     
-    sleep(TURN_CHECK_INTERVAL*20)
-    #Wait for gyro to calm down or something
-    angle = gs_value
-    difference = angleRev(angle - target)
+    #Wait for gyro to calm down, get a grip and give us a good value
+    sleep(TURN_STOP_WAIT)
+    difference = angleRev(gs_value - target)
+    #Because sometimes it may be a bit lagged behind and we want it to be more precise
     if difference > 2:
         print("Target reached then unreached")
         turnTo(target)
 
 #Uses the ultrasonic sensor to detect when it's heading off-course
+#It's a mix of a wall-following robot and a robot that keeps the same heading (gyro)
 class OffsetCheckUS(threading.Thread):
-    #After the ultrasonic has passed the wall, this is the distance it detects
-    #initialDist = 0
+    #It's important that there actually is a wall to follow, this will determine if there is:
+    #If it's not found, then it will fall back to only keeping the same heading, not using wall-following
     foundWall = recentlyTurned
-    gs_start = 361
-    previous_us = usT_queue_last
+    gs_start = 0
     
     def __init__(self):
         threading.Thread.__init__(self)
         self.interrupt = False
     
     def reset(self):
-        #initialDist = usT_value
         self.interrupt = False
-        leftMotorTrim2 = 0
-        rightMotorTrim2 = 0
     
     #Checking for any change in direction
     def run(self):
         global recentlyTurned
+        #This flag allows us to detect when it changed from constant speed(moving out of turn) -> wall follow (normal mode)
+        #used to reset the gyro value when it does change
         firstConstantSpeed = True
         while not self.interrupt:
-            #print("isForward: %s, foundWall: %s" % ("True" if isForward else "False", "True" if self.foundWall else "False"))
             if (not isForward) or movingToCan: #isTurning:
-                #print("Waiting to go forward")
                 #Wait until not turning anymore
                 sleep(TURN_CHECK_INTERVAL)
                 #Set initial variables (for if it stopped turning)
                 self.foundWall = False
-                #initialDist = usT_value
-                leftMotorTrim2 = 0
-                rightMotorTrim2 = 0
                 firstConstantSpeed = True
-                self.gs_start = angleRev(gs_queue_last)
+                self.gs_start = angleRev(gs_value)
             elif recentlyTurned or noTrim:
-                #Constant speed, because we don't know the trim
+                #Constant speed, trying to keep same heading
                 if firstConstantSpeed:
                     print("[Forward] Constant speed, resetting gyro value to %d" % gs_value)
                     self.gs_start = gs_value
-                    #Target the first angle
                     firstConstantSpeed = False
                 
+                #Keeps straight using the heading only
                 self.straight(False)
                 self.foundWall = False
-                
             elif not self.foundWall:
                 if not firstConstantSpeed:
                     print("[Forward] Just came out of constant speed; Haven't found wall yet; Resetting gyro value to %d" % gs_value)
                     self.gs_start = gs_value
-                    #Target the first angle
                     firstConstantSpeed = True
                 
                 #Check if the wall is found
                 if usT_value < US_WALL_DIST:
                     self.foundWall = True
-                    #initialDist = usT_value
                     print("[Forward] Found the wall again")
                 else:
+                    #Keeps using the heading only
                     self.straight(False)
                 
             elif self.foundWall:
                 if not firstConstantSpeed:
-                    #Just came out of the constant speed part, so we need to reset 
-                    #They gyro's first value
+                    #Just came out of the constant speed part, so we need to reset the gyro's value
                     print("[Forward] Just came out of constant speed; Resetting gyro target to %d" % gs_value)
                     self.gs_start = gs_value
                     firstConstantSpeed = True
@@ -584,9 +574,18 @@ class OffsetCheckUS(threading.Thread):
                     self.foundWall = False
                     print("[Forward] Lost the wall")
                 else:
+                    #Wall-following hybrid code executed since the wall is found
                     self.straight(True)
     
     def straight(self, use_us):
+        #use_us: True for keep-heading and wall-following hybrid
+        #        False to only keep the heading
+        
+        #For keep heading, if we adjust the robot mid-way
+        #It will try to get back to the original heading, which is not what we want
+        #So maybe we should instead use the average of the last few seconds of gyro
+        #values to aim for?
+        
         if use_us:
             #us_difference: <0 if the robot is too far right; >0 if the robot is too far left
             us_difference = US_T_DIR * (usT_value -DIST_CORRECT_TARGET)
@@ -599,21 +598,18 @@ class OffsetCheckUS(threading.Thread):
         #Difference between where the gyro is now, and where it's aimed for
         gs_difference = angleRev(gs_value - gs_target)
         
-        rightMotorTrim2 = 0
-        leftMotorTrim2 = 0
+        rightMotorAdjust = 0
+        leftMotorAdjust = 0
         
         if gs_difference > 0:
             #Turn it left by reducing left motor:
-            leftMotorTrim2 = MIN_TURN_POWER #+ gs_difference  
+            leftMotorAdjust = MIN_TURN_POWER
         if gs_difference < 0:
             #Turn it right by reducing right motor:
-            rightMotorTrim2 = MIN_TURN_POWER #- gs_difference
+            rightMotorAdjust = MIN_TURN_POWER
         
-        #rightMotorTrim2 = 1
-        #leftMotorTrim2 = 0
-        
-        leftSpeed = max(FORWARD_SPEED - min(leftMotorTrim2, ANGLE_CORRECT_MAX), 0)
-        rightSpeed = max(FORWARD_SPEED - min(rightMotorTrim2, ANGLE_CORRECT_MAX), 0)
+        leftSpeed = max(FORWARD_SPEED - min(leftMotorAdjust, ANGLE_CORRECT_MAX), 0)
+        rightSpeed = max(FORWARD_SPEED - min(rightMotorAdjust, ANGLE_CORRECT_MAX), 0)
         
         rightMotor.run_direct(duty_cycle_sp=rightSpeed)
         leftMotor.run_direct(duty_cycle_sp=leftSpeed)
@@ -622,9 +618,6 @@ class OffsetCheckUS(threading.Thread):
     #Stop Thread
     def stop(self):
         self.interrupt = True
-        leftMotorTrim2 = 0
-        rightMotorTrim2 = 0
-
 
 
 #Runs the functions that get sensor values
@@ -633,6 +626,8 @@ refresh_thread = None
 colour_thread = None
 can_thread = None
 
+#canDetect is True, unless you're trying to debug the program
+#And you don't want it occasianally detecting the can
 def startThreads(canDetect):
     global offset_check_thread
     offset_check_thread = OffsetCheckUS()
@@ -656,9 +651,10 @@ def mainFunc():
     #Attempts to get us out of a loop by counting how 
     #Many lefts we make, and ignoring any left turns after
     #The 4 limit has been reached
+    
+    #this doesn't work well in practice as sometimes it turns right in the loop when it shouldn't
     consecutiveLefts = 0
     
-    hasntFoundCan = True
     global recentlyTurned
     recentlyTurned = False
     global isForward
@@ -668,24 +664,12 @@ def mainFunc():
     while True:
         if movingToCan:
             sleep(0.5)
+            #Waits until its grabned the can to keep going through the maze
         else:
-            #if (usT_value < US_WALL_DIST) and (recentlyTurned):
-            #    recentlyTurned = False
-            #    print("[Main] Found wall again after turn")
-            
-            #if foundCan():
-            #    print("[Main] Found Target (1st Time)")
-            #    if hasntFoundCan:
-            #        hasntFoundCan = False
-            #        Sound.beep()
-            #       Sound.speak("Target Found")
-            #   getCan()
             if (not recentlyTurned) and canTurn() and (consecutiveLefts < 5):
                 
                 #Go into the middle of the intersection
                 recentlyTurned = True
-                   
-                #sleep(TURN_IN_WAIT)
                 
                 #Waits until TURN_IN_WAIT has completed:
                 #Does this while measuring the sensor every
