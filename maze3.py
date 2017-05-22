@@ -99,6 +99,12 @@ US_WALL_DIST = 50
 #It's different because the sensors are physically different (NXT vs EV3 sensor)
 FUS_WALL_DIST = 200
 
+#Makes everything reliant on the gyroscope, in 90 degree increments
+RELY_ON_GS = True
+
+#Where the gyroscope starts
+gs_offset = 0
+
 #Connect sensors/motors:
 rightMotor = LargeMotor(OUTPUT_D)
 leftMotor = LargeMotor(OUTPUT_C)
@@ -434,6 +440,13 @@ def angleRev(angle):
         else:
             return modded
 
+def nearestRightAngle(angle):
+    angle -= offset
+    #Round to nearest 90
+    angle = round(angleRev(angle)/90, 0) * 90
+    angle += offset
+    return angleRev(angle)
+
 #Generic stop function, stops the motors, and stops the forward thread from running
 def stop():
     global isForward
@@ -459,7 +472,10 @@ def turn(dir):
     
     print("Turning...")
     
-    turnTo(target)
+    if RELY_ON_GS:
+        turnTo(nearestRightAngle(target))
+    else:
+        turnTo(target)
     
     print("Finished turn")
     
@@ -585,15 +601,17 @@ class OffsetCheckUS(threading.Thread):
         #It will try to get back to the original heading, which is not what we want
         #So maybe we should instead use the average of the last few seconds of gyro
         #values to aim for?
-        
-        if use_us:
-            #us_difference: <0 if the robot is too far right; >0 if the robot is too far left
-            us_difference = US_T_DIR * (usT_value -DIST_CORRECT_TARGET)
-            
-            #Where to aim the gyro at (Average of ultrasonic and starting gyro)
-            gs_target = ((gs_value + us_difference) + self.gs_start) / 2
+        if RELY_ON_GS:
+            gs_target = nearestRightAngle(self.gs_start)
         else:
-            gs_target = self.gs_start;
+            if use_us:
+                #us_difference: <0 if the robot is too far right; >0 if the robot is too far left
+                us_difference = US_T_DIR * (usT_value -DIST_CORRECT_TARGET)
+                
+                #Where to aim the gyro at (Average of ultrasonic and starting gyro)
+                gs_target = ((gs_value + us_difference) + self.gs_start) / 2
+            else:
+                gs_target = self.gs_start;
         
         #Difference between where the gyro is now, and where it's aimed for
         gs_difference = angleRev(gs_value - gs_target)
@@ -659,6 +677,8 @@ def mainFunc():
     recentlyTurned = False
     global isForward
     calibrated = False
+    
+    gs_offset = gs_value
     
     #Main thread
     while True:
